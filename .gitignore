@@ -1,0 +1,11 @@
+.cache/
+bulk/
+__pycache__/
+.pytest_cache/
+.streamlit/secrets.toml
+api_key.txt
+.agents/
+.claude/
+*.zip
+outreach.json
+.DS_Store

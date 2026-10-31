@@ -14,7 +14,10 @@ THE RULES (all thresholds live in this file)
                         always a filing error, e.g. £88,933 typed as £88,933,000.
      OK               - everything else. Only OK charities get a trend or a hot flag.
 
-3. Trend = compared with similar-sized charities, not in absolute terms.
+3. Direction (the brief's indicator) = total % change from the oldest to the latest of
+   the 3 returns: more than +5% -> ▲ Up, less than -5% -> ▼ Down, otherwise ► Flat.
+
+   Trend vs peers = the same change compared with similar-sized charities.
    Almost every charity's income has risen in cash terms recently (the median charity
    grew ~9% over 3 years, largely inflation), so "Up" in absolute terms says little.
    Instead:
@@ -34,20 +37,32 @@ THE RULES (all thresholds live in this file)
    merger, appeal), so it's flagged for a human to check.
 6. Stale = latest return ended more than 22 months ago (charities have 10 months to
    file, so older than ~22 months means a late or missing filing).
+7. Gaps = two consecutive returns more than 15 months apart: a reporting year is missing,
+   so the "3 returns" span more than 3 years. Shown to the user, never filled in.
+
+PRIORITY (explainable, no score): first rule that matches wins
+     Check first  figures look like a filing error (status Check data)
+     Low          not enough history / tiny base / accounts overdue (stale)
+     High         🔥 hot AND growing faster than peers
+     Medium       🔥 hot OR growing faster than peers
+     Low          everything else
+   Each result carries the plain-English reasons behind it.
 """
+
 from __future__ import annotations
 
 from datetime import date
+from itertools import pairwise
 
 import numpy as np
 import pandas as pd
 
 YEARS = 3
-FLAT_BAND = 0.05          # 'In line' = within ±5% of the peer median change
+FLAT_BAND = 0.05  # 'In line' = within ±5% of the peer median change
 HOT_THRESHOLD = 0.10
 MIN_BASE = 10_000
-SPIKE = 1.0               # +100% in a year
-SUSPECT_RATIO = 50        # 50x jump or drop between returns = check data
+SPIKE = 1.0  # +100% in a year
+SUSPECT_RATIO = 50  # 50x jump or drop between returns = check data
 STALE_MONTHS = 22
 
 SIZE_BANDS = [  # (lower, upper, label); based on income at the start of the window
@@ -61,17 +76,30 @@ SIZE_BANDS = [  # (lower, upper, label); based on income at the start of the win
     (1e8, np.inf, "Over £100m"),
 ]
 
+GAP_MONTHS = 15  # returns further apart than this = a missing reporting year
+TARGET_SIZE = (1e6, 1e8)  # latest income range treated as a good Dynamics 365 fit (assumption)
+
 OK, NEW, SMALL, CHECK = "OK", "Under 3 yrs data", "Base under £10k", "Check data"
+UP, FLAT, DOWN = "Up", "Flat", "Down"
+HIGH, MEDIUM, LOW, CHECK_FIRST = "High", "Medium", "Low", "Check first"
 ABOVE, INLINE, BELOW = "Above peers", "In line", "Below peers"
 LABELS = {
-    ABOVE: "▲ Above peers", INLINE: "► In line", BELOW: "▼ Below peers",
-    NEW: "◌ Under 3 yrs data", SMALL: "◌ Base under £10k", CHECK: "⚠ Check data",
+    ABOVE: "▲ Above peers",
+    INLINE: "► In line",
+    BELOW: "▼ Below peers",
+    NEW: "◌ Under 3 yrs data",
+    SMALL: "◌ Base under £10k",
+    CHECK: "⚠ Check data",
+    UP: "▲ Up",
+    FLAT: "► Flat",
+    DOWN: "▼ Down",
 }
+PRIORITY_LABELS = {HIGH: "🟢 High", MEDIUM: "🟡 Medium", LOW: "⚪ Low", CHECK_FIRST: "🔴 Check first"}
 STATUS_HELP = {
     NEW: "Fewer than 3 annual returns on record, so it's too early to call a trend.",
     SMALL: "Income three years ago was under £10k, so percentage changes would be meaningless.",
     CHECK: "Income or expenditure changed more than 50× between two returns. That's almost always "
-           "a filing error (e.g. £88,933 entered as £88.9m). Check the published accounts before relying on these figures.",
+    "a filing error (e.g. £88,933 entered as £88.9m). Check the published accounts before relying on these figures.",
 }
 
 
@@ -91,6 +119,27 @@ def _suspect(a, b) -> bool:
     return r >= SUSPECT_RATIO or r <= 1 / SUSPECT_RATIO
 
 
+def direction(change, band: float = FLAT_BAND) -> str | None:
+    """The brief's up / flat / down, from the total change over the window."""
+    if change is None or pd.isna(change):
+        return None
+    return UP if change > band else DOWN if change < -band else FLAT
+
+
+def find_gaps(rows: list[dict]) -> list[tuple[str, str]]:
+    """Pairs of consecutive period-ends more than GAP_MONTHS apart (a missing reporting year)."""
+    out = []
+    for a, b in pairwise(rows):
+        if _months_between(a["period_end"], b["period_end"]) > GAP_MONTHS:
+            out.append((str(a["period_end"])[:10], str(b["period_end"])[:10]))
+    return out
+
+
+def _months_between(a, b) -> int:
+    a, b = pd.Timestamp(a), pd.Timestamp(b)
+    return (b.year - a.year) * 12 + (b.month - a.month)
+
+
 def _rel_trend(change, peer_median, band: float) -> str:
     diff = change - (peer_median if peer_median is not None and not pd.isna(peer_median) else 0.0)
     return ABOVE if diff > band else BELOW if diff < -band else INLINE
@@ -102,17 +151,32 @@ def _months_since(end, today: date) -> int:
 
 
 # ---------- one charity ----------
-def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT_BAND,
-              hot: float = HOT_THRESHOLD, today: date | None = None) -> dict:
+def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT_BAND, hot: float = HOT_THRESHOLD, today: date | None = None) -> dict:
     """history: [{period_end, income, expenditure}, ...] in any order.
     bench: output of benchmarks() -> {band_label: {"income": median, "expenditure": median, "n": count}}"""
     today = today or date.today()
     bench = bench or {}
     rows = sorted(({**h} for h in history if h.get("income") is not None), key=lambda h: str(h["period_end"]))
     last = rows[-YEARS:]
-    out = {"years": last, "all_years": rows, "status": NEW, "income_trend": NEW, "expenditure_trend": NEW,
-           "income_change": None, "expenditure_change": None, "income_yoy": None, "size_band": None,
-           "peer": None, "hot": False, "spike": False, "stale": False, "latest_period_end": None}
+    out = {
+        "years": last,
+        "all_years": rows,
+        "status": NEW,
+        "income_trend": NEW,
+        "expenditure_trend": NEW,
+        "income_change": None,
+        "expenditure_change": None,
+        "income_yoy": None,
+        "size_band": None,
+        "peer": None,
+        "hot": False,
+        "spike": False,
+        "stale": False,
+        "latest_period_end": None,
+        "income_direction": None,
+        "expenditure_direction": None,
+        "gaps": [],
+    }
     for i, r in enumerate(last):  # YoY for display, vs the return before (even if outside the window)
         j = len(rows) - len(last) + i - 1
         prev = rows[j] if j >= 0 else None
@@ -123,13 +187,14 @@ def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT
         return out
     out["latest_period_end"] = last[-1]["period_end"]
     out["stale"] = _months_since(last[-1]["period_end"], today) > STALE_MONTHS
+    out["gaps"] = find_gaps(last)
     out["income_yoy"] = last[-1].get("income_yoy")
 
     if len(last) < YEARS:
         status = NEW
     elif last[0]["income"] < MIN_BASE:
         status = SMALL
-    elif any(_suspect(a[c], b[c]) for c in ("income", "expenditure") for a, b in zip(last, last[1:])):
+    elif any(_suspect(a[c], b[c]) for c in ("income", "expenditure") for a, b in pairwise(last)):
         status = CHECK
     else:
         status = OK
@@ -144,13 +209,51 @@ def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT
     out["income_change"] = last[-1]["income"] / last[0]["income"] - 1
     e0 = last[0]["expenditure"]
     out["expenditure_change"] = last[-1]["expenditure"] / e0 - 1 if e0 and e0 > 0 else None
+    out["income_direction"] = direction(out["income_change"], band)
+    out["expenditure_direction"] = direction(out["expenditure_change"], band)
     out["income_trend"] = _rel_trend(out["income_change"], peer and peer["income"], band)
-    out["expenditure_trend"] = (_rel_trend(out["expenditure_change"], peer and peer["expenditure"], band)
-                                if out["expenditure_change"] is not None else SMALL)
+    out["expenditure_trend"] = _rel_trend(out["expenditure_change"], peer and peer["expenditure"], band) if out["expenditure_change"] is not None else SMALL
     yoy = out["income_yoy"]
     out["hot"] = yoy is not None and yoy > hot and last[-2]["income"] >= MIN_BASE
     out["spike"] = yoy is not None and yoy > SPIKE
     return out
+
+
+def priority(s: dict) -> dict:
+    """Explainable prospect priority for one charity (output of summarise).
+    Returns {"level", "reasons": [str]} where reasons are plain-English evidence."""
+    years = s["years"]
+    latest = years[-1]["income"] if years else None
+    if s["status"] == CHECK:
+        return {
+            "level": CHECK_FIRST,
+            "reasons": ["Income or expenditure jumped more than 50× in a year, which usually means a filing error. Check the published accounts first."],
+        }
+    if s["status"] in (NEW, SMALL):
+        return {"level": LOW, "reasons": [STATUS_HELP[s["status"]]]}
+    if s["stale"]:
+        return {
+            "level": LOW,
+            "reasons": [f"Latest accounts are for the year ending {s['latest_period_end']}, so they're overdue and the figures may be out of date."],
+        }
+    reasons = []
+    above = s["income_trend"] == ABOVE
+    if s["hot"]:
+        reasons.append(f"🔥 Income up {pct(s['income_yoy'])} last year (hot-prospect rule: more than {HOT_THRESHOLD:.0%}).")
+    else:
+        reasons.append(f"Income changed {pct(s['income_yoy'])} last year (not above the {HOT_THRESHOLD:.0%} hot-prospect line).")
+    peer = (s["peer"] or {}).get("income")
+    if peer is not None:
+        verb = {ABOVE: "ahead of", INLINE: "in line with", BELOW: "behind"}[s["income_trend"]]
+        reasons.append(f"Income {pct(s['income_change'])} over 3 returns, {verb} similar-sized charities ({pct(peer)}).")
+    if latest is not None:
+        lo, hi = TARGET_SIZE
+        fit = "inside" if lo <= latest < hi else "outside"
+        reasons.append(f"Latest income {money(latest)}, {fit} the £1m–£100m range assumed to suit Dynamics 365.")
+    if s["gaps"]:
+        reasons.append("A reporting year is missing between returns, so treat the trend with care.")
+    level = HIGH if s["hot"] and above else MEDIUM if s["hot"] or above else LOW
+    return {"level": level, "reasons": reasons}
 
 
 # ---------- every charity at once ----------
@@ -180,15 +283,14 @@ def base_table(fin: pd.DataFrame, today: date | None = None) -> pd.DataFrame:
         t[f"{col}_y1"] = first[col]
         t[f"{col}_y2"] = prev[col].where(t["n_years"] >= 2)
         t[f"{col}_y3"] = latest[col]
-    t["status"] = np.select(
-        [t["n_years"] < YEARS, t["income_y1"] < MIN_BASE, g["sus"].any()], [NEW, SMALL, CHECK], OK)
+    t["status"] = np.select([t["n_years"] < YEARS, t["income_y1"] < MIN_BASE, g["sus"].any()], [NEW, SMALL, CHECK], OK)
     ok = t["status"] == OK
     t["size_band"] = t["income_y1"].map(size_band).where(ok)
     t["income_change"] = (t["income_y3"] / t["income_y1"] - 1).where(ok)
     e1 = t["expenditure_y1"].where(t["expenditure_y1"] > 0)
     t["expenditure_change"] = (t["expenditure_y3"] / e1 - 1).where(ok)
     p = latest["income_prev"]
-    t["income_yoy"] = ((latest["income"] - p) / p.where(p > 0))
+    t["income_yoy"] = (latest["income"] - p) / p.where(p > 0)
     t["hot"] = ok & (t["income_yoy"] > HOT_THRESHOLD) & (t["income_y2"] >= MIN_BASE)
     t["spike"] = ok & (t["income_yoy"] > SPIKE)
     ends = pd.to_datetime(t["latest_period_end"])
@@ -201,9 +303,7 @@ def benchmarks(base: pd.DataFrame) -> dict:
     peers = base[(base["status"] == OK) & ~base["stale"]]
     out = {}
     for label, grp in peers.groupby("size_band"):
-        out[label] = {"income": float(grp["income_change"].median()),
-                      "expenditure": float(grp["expenditure_change"].median()),
-                      "n": int(len(grp))}
+        out[label] = {"income": float(grp["income_change"].median()), "expenditure": float(grp["expenditure_change"].median()), "n": int(len(grp))}
     return out
 
 
@@ -211,7 +311,7 @@ def apply_trends(base: pd.DataFrame, bench: dict, band: float = FLAT_BAND, hot: 
     t = base.copy()
     ok = t["status"] == OK
     for col in ("income", "expenditure"):
-        med = t["size_band"].map(lambda b: bench.get(b, {}).get(col, 0.0) if isinstance(b, str) else np.nan)
+        med = t["size_band"].map(lambda b, col=col: bench.get(b, {}).get(col, 0.0) if isinstance(b, str) else np.nan)
         t[f"peer_{col}_median"] = med
         diff = t[f"{col}_change"] - med
         trend = np.select([diff > band, diff < -band], [ABOVE, BELOW], INLINE)
@@ -220,6 +320,12 @@ def apply_trends(base: pd.DataFrame, bench: dict, band: float = FLAT_BAND, hot: 
             t.loc[ok & t["expenditure_change"].isna(), "expenditure_trend"] = SMALL
     t["peer_n"] = t["size_band"].map(lambda b: bench.get(b, {}).get("n") if isinstance(b, str) else None)
     t["hot"] = ok & (t["income_yoy"] > hot) & (t["income_y2"] >= MIN_BASE)
+    for col in ("income", "expenditure"):
+        ch = t[f"{col}_change"]
+        d = pd.Series(np.select([ch > band, ch < -band], [UP, DOWN], FLAT), index=t.index, dtype=object)
+        t[f"{col}_direction"] = d.where(ok & ch.notna(), None)
+    above = t["income_trend"] == ABOVE
+    t["priority"] = np.select([t["status"] == CHECK, ~ok | t["stale"], t["hot"] & above, t["hot"] | above], [CHECK_FIRST, LOW, HIGH, MEDIUM], LOW)
     return t
 
 

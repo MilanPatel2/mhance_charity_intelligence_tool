@@ -4,8 +4,7 @@ import analysis as A
 import outreach as O
 
 TODAY = date(2026, 10, 31)  # a Saturday
-BENCH = {"£25m–£100m": {"income": 0.095, "expenditure": 0.127, "n": 463},
-         "£1m–£5m": {"income": 0.099, "expenditure": 0.127, "n": 5596}}
+BENCH = {"£25m–£100m": {"income": 0.095, "expenditure": 0.127, "n": 463}, "£1m–£5m": {"income": 0.099, "expenditure": 0.127, "n": 5596}}
 SETTINGS = {"name": "Milan Patel", "role": "Business Development", "calendly": "https://calendly.com/milan/20min"}
 
 
@@ -16,11 +15,23 @@ def nacro_like():
         {"period_end": "2024-03-31", "income": 77_032_000, "expenditure": 76_000_000, "govt_contracts": 56_763_000, "trading": 0},
         {"period_end": "2025-03-31", "income": 90_328_000, "expenditure": 88_000_000, "govt_contracts": 90_328_000, "trading": 0},
     ]
-    return {"reg_number": 226171, "name": "NACRO", "financials": fin,
-            "profile": {"Email": "anna.barker@nacro.org.uk", "Phone": "0300 123 1889", "Website": "www.nacro.org.uk",
-                        "Employees": 873, "Volunteers": 97, "Sectors": "Education/training | Accommodation/housing"},
-            "trustees": [{"name": "NICHOLAS LIONEL HARDWICK", "is_chair": True, "appointed": "2022-07-20"},
-                         {"name": "Joanne Harper", "is_chair": False, "appointed": "2025-08-01"}]}
+    return {
+        "reg_number": 226171,
+        "name": "NACRO",
+        "financials": fin,
+        "profile": {
+            "Email": "anna.barker@nacro.org.uk",
+            "Phone": "0300 123 1889",
+            "Website": "www.nacro.org.uk",
+            "Employees": 873,
+            "Volunteers": 97,
+            "Sectors": "Education/training | Accommodation/housing",
+        },
+        "trustees": [
+            {"name": "NICHOLAS LIONEL HARDWICK", "is_chair": True, "appointed": "2022-07-20"},
+            {"name": "Joanne Harper", "is_chair": False, "appointed": "2025-08-01"},
+        ],
+    }
 
 
 def test_names():
@@ -48,7 +59,7 @@ def test_nacro_hooks_and_email():
     s = A.summarise(rec["financials"], BENCH, today=TODAY)
     plan = O.build_plan(rec, s, SETTINGS, TODAY, TODAY)
     keys = [h["key"] for h in plan["hooks"]]
-    assert keys[0] == "growth"            # hot (+17%) and above peers (+32% vs +9.5%)
+    assert keys[0] == "growth"  # hot (+17%) and above peers (+32% vs +9.5%)
     assert "contracts" in keys and "scale" in keys
     assert plan["secondary"]["key"] == "contracts"
     e1 = plan["steps"][0]
@@ -102,8 +113,8 @@ def test_mailto_encodes():
 def test_recipient_matches_inbox():
     chair = O.person("Jane Smith")
     assert O.recipient("jane.smith@x.org", chair)["salutation"] == "Dear Jane"
-    assert O.recipient("smithj@x.org", chair)["salutation"] == "Dear Jane"          # chair's own inbox
-    assert O.recipient("anna.barker@x.org", chair)["salutation"] == "Dear Anna"     # someone else's
-    assert O.recipient("info@x.org", chair)["salutation"] == "Dear Jane"            # generic -> chair
+    assert O.recipient("smithj@x.org", chair)["salutation"] == "Dear Jane"  # chair's own inbox
+    assert O.recipient("anna.barker@x.org", chair)["salutation"] == "Dear Anna"  # someone else's
+    assert O.recipient("info@x.org", chair)["salutation"] == "Dear Jane"  # generic -> chair
     assert O.recipient("accounts@x.org", None)["salutation"] == "Dear Trustees"
     assert O.recipient(None, None)["salutation"] == "Dear Trustees"

@@ -6,14 +6,12 @@ import pytest
 import analysis as A
 
 TODAY = date(2026, 10, 31)
-BENCH = {"£100k–£500k": {"income": 0.10, "expenditure": 0.08, "n": 100},
-         "£10k–£100k": {"income": 0.09, "expenditure": 0.09, "n": 100}}
+BENCH = {"£100k–£500k": {"income": 0.10, "expenditure": 0.08, "n": 100}, "£10k–£100k": {"income": 0.09, "expenditure": 0.09, "n": 100}}
 
 
 def hist(*incomes, exp=None, start=2022):
     exp = exp or incomes
-    return [{"period_end": f"{start + i}-03-31", "income": inc, "expenditure": e}
-            for i, (inc, e) in enumerate(zip(incomes, exp))]
+    return [{"period_end": f"{start + i}-03-31", "income": inc, "expenditure": e} for i, (inc, e) in enumerate(zip(incomes, exp, strict=True))]
 
 
 def test_size_bands():
@@ -47,8 +45,7 @@ def test_tiny_base_marked_separately():
 
 def test_sickle_cell_filing_error_is_check_data():
     # real figures from the register (charity 1162402): £86k -> £88.9m
-    h = hist(36_699, 55_863, 136_809, 86_341, 88_933_000,
-             exp=[55_079, 64_099, 68_677, 98_446, 125_141_000], start=2021)
+    h = hist(36_699, 55_863, 136_809, 86_341, 88_933_000, exp=[55_079, 64_099, 68_677, 98_446, 125_141_000], start=2021)
     s = A.summarise(h, BENCH, today=TODAY)
     assert s["status"] == A.CHECK
     assert s["income_trend"] == A.CHECK and s["hot"] is False and s["spike"] is False
@@ -73,9 +70,16 @@ def test_stale_flag():
 
 
 def test_vectorised_matches_single():
-    cases = {1: hist(200e3, 205e3, 224e3), 2: hist(200e3, 230e3, 260e3), 3: hist(150e3, 300e3),
-             4: hist(0, 50e3, 60e3), 5: hist(36_699, 55_863, 136_809, 86_341, 88_933_000, start=2021),
-             6: hist(50e3, 60e3, 200e3), 7: hist(10e3, 100e3, 100e3, 100e3), 8: hist(200e3, 202e3, 204e3)}
+    cases = {
+        1: hist(200e3, 205e3, 224e3),
+        2: hist(200e3, 230e3, 260e3),
+        3: hist(150e3, 300e3),
+        4: hist(0, 50e3, 60e3),
+        5: hist(36_699, 55_863, 136_809, 86_341, 88_933_000, start=2021),
+        6: hist(50e3, 60e3, 200e3),
+        7: hist(10e3, 100e3, 100e3, 100e3),
+        8: hist(200e3, 202e3, 204e3),
+    }
     rows = [{"org_number": org, **r} for org, h in cases.items() for r in h]
     t = A.apply_trends(A.base_table(pd.DataFrame(rows), today=TODAY), BENCH).set_index("org_number")
     for org, h in cases.items():
@@ -89,8 +93,12 @@ def test_vectorised_matches_single():
 
 def test_benchmarks_only_use_ok_up_to_date_charities():
     rows = []
-    for org, h in {1: hist(100e3, 110e3, 120e3, start=2023), 2: hist(100e3, 100e3, 140e3, start=2023),
-                   3: hist(100e3, 100e3, 900e3, start=2020), 4: hist(1e5, 2e5, start=2024)}.items():
+    for org, h in {
+        1: hist(100e3, 110e3, 120e3, start=2023),
+        2: hist(100e3, 100e3, 140e3, start=2023),
+        3: hist(100e3, 100e3, 900e3, start=2020),
+        4: hist(1e5, 2e5, start=2024),
+    }.items():
         rows += [{"org_number": org, **r} for r in h]
     b = A.benchmarks(A.base_table(pd.DataFrame(rows), today=TODAY))
     assert b["£100k–£500k"]["n"] == 2  # stale (3) and under-3-years (4) excluded

@@ -24,6 +24,7 @@ SEQUENCE (days are working days after day 0, so weekends are skipped and steps n
   Day 5  Phone call: script, discovery questions, voicemail
   Day 7  LinkedIn: connection note (under LinkedIn's 300-character limit)
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -34,12 +35,58 @@ import analysis as A
 STEPS = [(0, "email", "First email"), (3, "email", "Follow-up email"), (5, "call", "Phone call"), (7, "linkedin", "LinkedIn connection")]
 LINKEDIN_LIMIT = 300
 
-TITLES = {"dr": "Dr", "doctor": "Dr", "professor": "Professor", "prof": "Professor", "sir": "Sir", "dame": "Dame",
-          "lord": "Lord", "lady": "Lady", "baroness": "Baroness", "baron": "Baron", "rev": "Revd", "revd": "Revd",
-          "reverend": "Revd", "canon": "Canon", "mr": "Mr", "mrs": "Mrs", "ms": "Ms", "miss": "Miss", "councillor": "Cllr",
-          "cllr": "Cllr", "the": None}
-POST_NOMINALS = {"cb", "cbe", "obe", "mbe", "kbe", "dbe", "bem", "qc", "kc", "jp", "dl", "phd", "frcp", "frcpch",
-                 "frs", "fca", "aca", "mp", "cvo", "lvo", "rn", "ma", "msc", "bsc", "ba", "mba", "llb"}
+TITLES = {
+    "dr": "Dr",
+    "doctor": "Dr",
+    "professor": "Professor",
+    "prof": "Professor",
+    "sir": "Sir",
+    "dame": "Dame",
+    "lord": "Lord",
+    "lady": "Lady",
+    "baroness": "Baroness",
+    "baron": "Baron",
+    "rev": "Revd",
+    "revd": "Revd",
+    "reverend": "Revd",
+    "canon": "Canon",
+    "mr": "Mr",
+    "mrs": "Mrs",
+    "ms": "Ms",
+    "miss": "Miss",
+    "councillor": "Cllr",
+    "cllr": "Cllr",
+    "the": None,
+}
+POST_NOMINALS = {
+    "cb",
+    "cbe",
+    "obe",
+    "mbe",
+    "kbe",
+    "dbe",
+    "bem",
+    "qc",
+    "kc",
+    "jp",
+    "dl",
+    "phd",
+    "frcp",
+    "frcpch",
+    "frs",
+    "fca",
+    "aca",
+    "mp",
+    "cvo",
+    "lvo",
+    "rn",
+    "ma",
+    "msc",
+    "bsc",
+    "ba",
+    "mba",
+    "llb",
+}
 SMALL_WORDS = {"of", "and", "the", "for", "in", "on", "at", "to", "a", "an", "&"}
 
 
@@ -59,7 +106,7 @@ def nice_name(name: str) -> str:
             out.append(lw)
             continue
         j = next((k for k, ch in enumerate(lw) if ch.isalpha()), 0)  # '(GREAT' -> '(Great'
-        out.append(lw[:j] + lw[j:j + 1].upper() + lw[j + 1:])
+        out.append(lw[:j] + lw[j : j + 1].upper() + lw[j + 1 :])
     return " ".join(out)
 
 
@@ -110,26 +157,36 @@ def add_working_days(d: date, n: int) -> date:
     return d
 
 
-def budget_timing(latest_period_end, today: date) -> dict:
-    """Charities usually plan next year's budget in the ~6 to 2 months before year end."""
+def budget_timing(latest_period_end, today: date, start_months: int = 6, end_months: int = 2) -> dict:
+    """ESTIMATED budget-planning window from the charity's financial year end.
+
+    Assumption (configurable): charities plan next year's budget roughly `start_months`
+    to `end_months` before their year end. We only know the year end (from their filings),
+    not their actual budget cycle, so every output is labelled as an estimate."""
+    start_months, end_months = max(start_months, end_months), min(start_months, end_months)
     if not latest_period_end:
-        return {"fy_end": None, "now": False, "text": "Financial year end unknown."}
+        return {"fy_end": None, "now": False, "window": None, "period": "Unknown", "text": "Financial year end unknown, so no timing estimate.", "guidance": ""}
     end = date.fromisoformat(str(latest_period_end)[:10])
     nxt = end
     while nxt <= today:
         nxt = _add_years(nxt, 1)
-    start_w, end_w = _add_months(nxt, -6), _add_months(nxt, -2)
+    start_w, end_w = _add_months(nxt, -start_months), _add_months(nxt, -end_months)
     if start_w > today:  # a window that hasn't started yet may also have one still running from the year before
         prev = _add_years(nxt, -1)
-        if _add_months(prev, -6) <= today <= _add_months(prev, -2):
-            start_w, end_w, nxt = _add_months(prev, -6), _add_months(prev, -2), prev
+        if _add_months(prev, -start_months) <= today <= _add_months(prev, -end_months):
+            start_w, end_w, nxt = _add_months(prev, -start_months), _add_months(prev, -end_months), prev
     now = start_w <= today <= end_w
     fy = f"{nxt.day} {nxt:%B}"
+    period = f"now to {end_w:%B %Y}" if now else f"{start_w:%B %Y} to {end_w:%B %Y}"
     if now:
-        text = f"Good timing: their year ends {fy}, so they're likely planning next year's budget now."
+        text = f"Estimate: their financial year ends {fy}, so they may be planning next year's budget now (window {start_w:%b}–{end_w:%b})."
     else:
-        text = f"Year ends {fy}. Budget planning is usually {start_w:%B} to {end_w:%B}, so that's the best window."
-    return {"fy_end": nxt, "now": now, "window": (start_w, end_w), "text": text}
+        text = f"Estimate: their financial year ends {fy}, so budget planning probably runs {start_w:%B} to {end_w:%B}."
+    guidance = (
+        f"Aim for a first conversation before {end_w:%B %Y}, while next year's spending is likely still being "
+        f"decided. Based on a {start_months}-to-{end_months}-month rule, not their confirmed budget cycle."
+    )
+    return {"fy_end": nxt, "now": now, "window": (start_w, end_w), "period": period, "text": text, "guidance": guidance}
 
 
 def _add_years(d: date, n: int) -> date:
@@ -171,21 +228,27 @@ def find_hooks(rec: dict, s: dict, today: date) -> list[dict]:
         if s["hot"]:
             fact = f"{name}'s income grew {ppct(s['income_yoy'])} last year to {A.money(latest['income'])}"
             if s["income_trend"] == A.ABOVE and peer is not None:
-                fact += (f", and {ppct(s['income_change'])} over three years, well ahead of the "
-                         f"{ppct(peer)} typical for charities of its size")
+                fact += f", and {ppct(s['income_change'])} over three years, well ahead of the {ppct(peer)} typical for charities of its size"
         else:
-            fact = (f"{name}'s income has grown {ppct(s['income_change'])} over the last three years, well ahead "
-                    f"of the {ppct(peer)} typical for charities of its size")
-        hooks.append({
-            "key": "growth", "title": "Strong growth", "email_safe": True,
-            "score": 90 if s["hot"] and s["income_trend"] == A.ABOVE else 80 if s["hot"] else 70,
-            "fact": fact + ".", "extra": "Congratulations, that's a real achievement.",
-            "why": "Growth like that usually means more supporters, grants and reporting to keep track of, and the "
-                   "spreadsheets and older systems that worked at a smaller size start to creak.",
-            "subject": f"{name}'s growth, and the systems behind it",
-            "question": "How are your current systems coping with the growth? Where does it hurt most?",
-            "short": "your recent growth",
-        })
+            fact = (
+                f"{name}'s income has grown {ppct(s['income_change'])} over the last three years, well ahead "
+                f"of the {ppct(peer)} typical for charities of its size"
+            )
+        hooks.append(
+            {
+                "key": "growth",
+                "title": "Strong growth",
+                "email_safe": True,
+                "score": 90 if s["hot"] and s["income_trend"] == A.ABOVE else 80 if s["hot"] else 70,
+                "fact": fact + ".",
+                "extra": "Congratulations, that's a real achievement.",
+                "why": "Growth like that can mean more supporters, grants and reporting to keep track of, and systems "
+                "that suited a smaller organisation may start to feel stretched.",
+                "subject": f"{name}'s growth, and the systems behind it",
+                "question": "How are your current systems coping with the growth? Where does it hurt most?",
+                "short": "your recent growth",
+            }
+        )
 
     if len(years) >= 2:
         first = years[0]
@@ -195,34 +258,42 @@ def find_hooks(rec: dict, s: dict, today: date) -> list[dict]:
         if c1 and c1 > 0 and ((share or 0) >= 0.30 or grew):
             portion = ("almost all" if (share or 0) >= 0.95 else f"around {share:.0%}") if share else None
             if portion and grew:
-                fact = (f"{portion} of {name}'s income now comes from government contracts, "
-                        f"up from {A.money(c0)} to {A.money(c1)} in three years.")
+                fact = f"{portion} of {name}'s income now comes from government contracts, up from {A.money(c0)} to {A.money(c1)} in three years."
             elif portion:
                 fact = f"{portion} of {name}'s income now comes from government contracts."
             else:
                 fact = f"{name}'s government contract income has grown from {A.money(c0)} to {A.money(c1)} in three years."
-            hooks.append({
-                "key": "contracts", "title": "Government contract income", "email_safe": True,
-                "score": 85 if grew and (share or 0) >= 0.30 else 75,
-                "fact": fact,
-                "why": "Contract funding brings tighter reporting, outcome tracking and audit requirements, and "
-                       "pulling that together by hand eats staff time.",
-                "subject": f"Contract reporting at {name}",
-                "question": "How do you pull together the reporting for your contracts and funders at the moment?",
-                "short": "your contract-funded work",
-            })
+            hooks.append(
+                {
+                    "key": "contracts",
+                    "title": "Government contract income",
+                    "email_safe": True,
+                    "score": 85 if grew and (share or 0) >= 0.30 else 75,
+                    "fact": fact,
+                    "why": "Contract funding often comes with tighter reporting, outcome tracking and audit requirements, "
+                    "which can take up a lot of staff time if it's pulled together by hand.",
+                    "subject": f"Contract reporting at {name}",
+                    "question": "How do you pull together the reporting for your contracts and funders at the moment?",
+                    "short": "your contract-funded work",
+                }
+            )
 
         t0, t1 = first.get("trading"), latest.get("trading")
         if t0 and t1 and t0 > 0 and t1 / t0 - 1 >= 0.25 and t1 - t0 >= 100_000:
-            hooks.append({
-                "key": "trading", "title": "Trading income growing", "email_safe": True, "score": 60,
-                "fact": f"{name}'s trading income has grown from {A.money(t0)} to {A.money(t1)} in three years.",
-                "why": "Shops, cafés, events and trading arms add stock, sales and finance to track alongside fundraising, "
-                       "and it's easy to end up with separate systems that don't talk to each other.",
-                "subject": f"{name}'s trading growth",
-                "question": "How do your trading and fundraising figures come together for the finance team?",
-                "short": "your trading growth",
-            })
+            hooks.append(
+                {
+                    "key": "trading",
+                    "title": "Trading income growing",
+                    "email_safe": True,
+                    "score": 60,
+                    "fact": f"{name}'s trading income has grown from {A.money(t0)} to {A.money(t1)} in three years.",
+                    "why": "Shops, cafés, events and trading arms add stock, sales and finance to track alongside fundraising, "
+                    "and organisations can end up with separate systems that don't talk to each other.",
+                    "subject": f"{name}'s trading growth",
+                    "question": "How do your trading and fundraising figures come together for the finance team?",
+                    "short": "your trading growth",
+                }
+            )
 
     chair = next((t for t in rec["trustees"] if t["is_chair"]), None)
     recent = [t for t in rec["trustees"] if t["appointed"] and (today - date.fromisoformat(t["appointed"][:10])).days <= 365]
@@ -233,49 +304,74 @@ def find_hooks(rec: dict, s: dict, today: date) -> list[dict]:
             fact = f"{name} has had a new chair since {when}."
         else:
             fact = f"{len(recent)} new trustees have joined {name}'s board in the last year."
-        hooks.append({
-            "key": "leadership", "title": "New leadership", "email_safe": True, "score": 50,
-            "fact": fact, "why": "New boards often take a fresh look at how the organisation runs and what it needs to grow.",
-            "subject": f"A fresh look at {name}'s systems",
-            "question": "Is the board looking at any changes to how things run this year?",
-            "short": "the changes on your board",
-        })
+        hooks.append(
+            {
+                "key": "leadership",
+                "title": "New leadership",
+                "email_safe": True,
+                "score": 50,
+                "fact": fact,
+                "why": "New boards sometimes take a fresh look at how the organisation runs and what it needs to grow.",
+                "subject": f"A fresh look at {name}'s systems",
+                "question": "Is the board looking at any changes to how things run this year?",
+                "short": "the changes on your board",
+            }
+        )
 
     staff, vols = rec["profile"].get("Employees") or 0, rec["profile"].get("Volunteers") or 0
     if staff >= 50 or vols >= 200:
         parts = [f"{staff:,} staff" if staff else "", f"{vols:,} volunteers" if vols else ""]
-        hooks.append({
-            "key": "scale", "title": "Lots of people to coordinate", "email_safe": True, "score": 40,
-            "fact": f"{name} has {' and '.join(p for p in parts if p)} to coordinate.",
-            "why": "Keeping rotas, training, safeguarding checks and impact data in one place gets hard at that scale.",
-            "subject": f"Coordinating {name}'s people",
-            "question": "How do you manage staff and volunteer records today?",
-            "short": "coordinating your staff and volunteers",
-        })
+        hooks.append(
+            {
+                "key": "scale",
+                "title": "Lots of people to coordinate",
+                "email_safe": True,
+                "score": 40,
+                "fact": f"{name} has {' and '.join(p for p in parts if p)} to coordinate.",
+                "why": "Keeping rotas, training, safeguarding checks and impact data in one place can get harder at that scale.",
+                "subject": f"Coordinating {name}'s people",
+                "question": "How do you manage staff and volunteer records today?",
+                "short": "coordinating your staff and volunteers",
+            }
+        )
 
     if s["status"] == A.OK and latest.get("income") and latest.get("expenditure"):
         deficit = latest["expenditure"] - latest["income"]
         exp_ahead = (s["expenditure_change"] or 0) - (s["income_change"] or 0) >= 0.10
         if deficit > 0.05 * latest["income"] or exp_ahead:
-            hooks.append({
-                "key": "costs", "title": "Costs outpacing income", "email_safe": False, "score": 55,
-                "fact": (f"expenditure ran {A.money(deficit)} ahead of income last year." if deficit > 0
-                         else f"costs have grown faster than income ({A.pct(s['expenditure_change'])} vs {A.pct(s['income_change'])})."),
-                "why": "Better visibility of where time and money go is usually the quickest win.",
-                "subject": "", "question": "Where are you hoping to save time or cost this year?",
-                "short": "efficiency",
-            })
+            hooks.append(
+                {
+                    "key": "costs",
+                    "title": "Costs outpacing income",
+                    "email_safe": False,
+                    "score": 55,
+                    "fact": (
+                        f"expenditure ran {A.money(deficit)} ahead of income last year."
+                        if deficit > 0
+                        else f"costs have grown faster than income ({A.pct(s['expenditure_change'])} vs {A.pct(s['income_change'])})."
+                    ),
+                    "why": "Clearer visibility of where time and money go may help.",
+                    "subject": "",
+                    "question": "Where are you hoping to save time or cost this year?",
+                    "short": "efficiency",
+                }
+            )
 
-    band = s.get("size_band") or A.size_band(years[0]["income"] if years else None)
     sector = (rec["profile"].get("Sectors") or "").split(" | ")[0].lower()
-    hooks.append({
-        "key": "fallback", "title": "Size and sector", "email_safe": True, "score": 10,
-        "fact": "", "opener": f"I've been looking at charities like {name}" + (f" working in {sector}" if sector else "") + ".",
-        "why": "Charities at your stage often find their fundraising, finance and reporting live in separate places.",
-        "subject": f"A quick idea for {name}",
-        "question": "What do you use for fundraising, finance and reporting today?",
-        "short": "how you run things day to day",
-    })
+    hooks.append(
+        {
+            "key": "fallback",
+            "title": "Size and sector",
+            "email_safe": True,
+            "score": 10,
+            "fact": "",
+            "opener": f"I've been looking at charities like {name}" + (f" working in {sector}" if sector else "") + ".",
+            "why": "Charities at a similar stage can find their fundraising, finance and reporting live in separate places.",
+            "subject": f"A quick idea for {name}",
+            "question": "What do you use for fundraising, finance and reporting today?",
+            "short": "how you run things day to day",
+        }
+    )
     for h in hooks:
         h.setdefault("extra", "")
         h["line"] = h.get("opener") or f"I noticed {_mid_sentence(h['fact'], name)}"
@@ -283,15 +379,33 @@ def find_hooks(rec: dict, s: dict, today: date) -> list[dict]:
 
 
 # ---------- contact ----------
-GENERIC_INBOXES = {"info", "admin", "office", "enquiries", "enquiry", "hello", "contact", "accounts", "finance",
-                   "mail", "general", "reception", "secretary", "secretariat", "team", "charity", "post", "help"}
+GENERIC_INBOXES = {
+    "info",
+    "admin",
+    "office",
+    "enquiries",
+    "enquiry",
+    "hello",
+    "contact",
+    "accounts",
+    "finance",
+    "mail",
+    "general",
+    "reception",
+    "secretary",
+    "secretariat",
+    "team",
+    "charity",
+    "post",
+    "help",
+}
 
 
 def recipient(email: str | None, chair: dict | None) -> dict:
     """Who the email is addressed to, so the greeting matches the inbox it lands in.
-      - inbox contains the chair's name           -> the chair
-      - inbox looks like a person (anna.barker@)  -> that person, by first name
-      - generic inbox (info@, admin@) or none     -> the chair if known, else the trustees"""
+    - inbox contains the chair's name           -> the chair
+    - inbox looks like a person (anna.barker@)  -> that person, by first name
+    - generic inbox (info@, admin@) or none     -> the chair if known, else the trustees"""
     local = (email or "").split("@")[0].lower()
     if chair and local and any(len(n) > 2 and n.lower() in local for n in (chair["first"], chair["last"])):
         return {"salutation": chair["salutation"], "who": f"{chair['full']} (chair)", "first": chair["first"]}
@@ -320,8 +434,7 @@ def contact(rec: dict) -> dict:
         "email": p.get("Email"),
         "phone": p.get("Phone"),
         "website": p.get("Website"),
-        "decision_maker": ("CEO, Finance Director or Head of Operations" if income >= 1e6
-                           else "chair or CEO (smaller charities often decide at board level)"),
+        "decision_maker": ("CEO, Finance Director or Head of Operations" if income >= 1e6 else "chair or CEO (smaller charities often decide at board level)"),
         "linkedin_chair": li(f"{chair['full']} {charity}") if chair else None,
         "linkedin_ceo": li(f"{charity} chief executive"),
         "linkedin_finance": li(f"{charity} finance director"),
@@ -336,7 +449,7 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
     h1 = safe[0]
     h2 = next((h for h in safe[1:] if h["key"] != "fallback"), None)
     c = contact(rec)
-    timing = budget_timing(s.get("latest_period_end"), today)
+    timing = budget_timing(s.get("latest_period_end"), today, int(settings.get("budget_start_months", 6)), int(settings.get("budget_end_months", 2)))
     me = settings.get("name") or "[Your name]"
     role = settings.get("role") or "[Your role]"
     cal = settings.get("calendly") or "[your Calendly link]"
@@ -352,11 +465,11 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
         f"Would a 20-minute call be useful to compare notes? You can pick a time that suits you here: {cal}\n\n"
         f"Kind regards,\n{sig}"
     )
-    second = (f"I also noticed {_mid_sentence(h2['fact'], c['charity'])} {h2['why']}" if h2 else h1["why"])
+    second = f"I also noticed {_mid_sentence(h2['fact'], c['charity'])} {h2['why']}" if h2 else h1["why"]
     email2 = (
         f"{c['salutation']},\n\n"
         f"Just following up on my note from {dates[0]:%A}. {second}\n\n"
-        f"I'm happy to share what we've seen work for charities of a similar size, with no obligation. "
+        f"I'd be happy to share what we've seen work for charities of a similar size, with no obligation. "
         f"If a short call would help, here's my calendar: {cal}\n\n"
         f"Best wishes,\n{sig}"
     )
@@ -365,7 +478,7 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
     call = (
         f"Call: {c['phone'] or 'no phone listed, check the website'}\n"
         f"Ask for: the {c['decision_maker']}, or {ask_for}\n\n"
-        f"Opener: \"Hi, it's {me} from mhance. I sent a couple of emails about {h1['short']}. Have I caught you at an OK time?\"\n\n"
+        f'Opener: "Hi, it\'s {me} from mhance. I sent a couple of emails about {h1["short"]}. Have I caught you at an OK time?"\n\n'
         f"Why you're calling: {h1['line']}\n\n"
         f"Questions to ask:\n" + "\n".join(f"  • {q}" for q in qs) + "\n\n"
         f"Timing: {timing['text']}\n\n"
@@ -376,21 +489,109 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
     )
     li_first = c["chair"]["first"] if c["chair"] else ""
     hi = f"Hi {li_first}, " if li_first else "Hi, "
-    note = hi + (f"I'm {me} at mhance. We help UK charities run fundraising and finance on Microsoft Dynamics 365. "
-                 f"I've been following {c['charity']}'s work and {h1['short']}, and would love to connect.")
+    note = hi + (
+        f"I'm {me} at mhance. We help UK charities run fundraising and finance on Microsoft Dynamics 365. "
+        f"I've been following {c['charity']}'s work and {h1['short']}, and would love to connect."
+    )
     if len(note) > LINKEDIN_LIMIT:
         note = hi + f"I'm {me} at mhance. We help UK charities with Microsoft Dynamics 365. Would love to connect."
     steps = [
-        {"day": 0, "date": dates[0], "channel": "email", "title": "First email", "to": c["email"],
-         "subject": h1["subject"], "body": email1},
-        {"day": 3, "date": dates[3], "channel": "email", "title": "Follow-up email", "to": c["email"],
-         "subject": f"Re: {h1['subject']}", "body": email2},
-        {"day": 5, "date": dates[5], "channel": "call", "title": "Phone call", "to": c["phone"],
-         "subject": "", "body": call},
-        {"day": 7, "date": dates[7], "channel": "linkedin", "title": "LinkedIn connection",
-         "to": c["chair"]["full"] if c["chair"] else "", "subject": "", "body": note},
+        {"day": 0, "date": dates[0], "channel": "email", "title": "First email", "to": c["email"], "subject": h1["subject"], "body": email1},
+        {"day": 3, "date": dates[3], "channel": "email", "title": "Follow-up email", "to": c["email"], "subject": f"Re: {h1['subject']}", "body": email2},
+        {"day": 5, "date": dates[5], "channel": "call", "title": "Phone call", "to": c["phone"], "subject": "", "body": call},
+        {
+            "day": 7,
+            "date": dates[7],
+            "channel": "linkedin",
+            "title": "LinkedIn connection",
+            "to": c["chair"]["full"] if c["chair"] else "",
+            "subject": "",
+            "body": note,
+        },
     ]
-    return {"hooks": hooks, "primary": h1, "secondary": h2, "contact": c, "timing": timing, "steps": steps}
+    return {
+        "hooks": hooks,
+        "primary": h1,
+        "secondary": h2,
+        "contact": c,
+        "timing": timing,
+        "steps": steps,
+        "summary": financial_summary(s),
+        "priority": A.priority(s),
+    }
+
+
+def financial_summary(s: dict) -> str:
+    """One plain-English sentence on financial direction, built only from the figures."""
+    if not s["years"]:
+        return "No financial returns on record."
+    latest = s["years"][-1]
+    if s["status"] != A.OK:
+        why = A.STATUS_HELP[s["status"]]
+        return f"Latest income {A.money(latest['income'])} (year ending {str(latest['period_end'])[:10]}). No trend shown: {why[0].lower() + why[1:]}"
+    peer = (s["peer"] or {}).get("income")
+    word = lambda d: {A.UP: "up", A.DOWN: "down", A.FLAT: "flat"}[d]
+    text = (
+        f"Income {A.money(latest['income'])} in the year ending {str(latest['period_end'])[:10]}, "
+        f"{word(s['income_direction'])} {A.pct(s['income_change'])} over 3 returns"
+    )
+    if peer is not None:
+        cmp = {A.ABOVE: "faster than", A.INLINE: "in line with", A.BELOW: "slower than"}[s["income_trend"]]
+        text += f", {cmp} similar-sized charities ({A.pct(peer)})"
+    text += f". Expenditure {A.money(latest['expenditure'])}"
+    if s["expenditure_direction"]:
+        text += f", {word(s['expenditure_direction'])} {A.pct(s['expenditure_change'])}"
+    return text + "."
+
+
+def next_action(item: dict, plan: dict) -> tuple[str, date | None]:
+    """The first unfinished step of an active sequence."""
+    if item.get("outcome", "Active") != "Active":
+        return f"No action: {item['outcome'].lower()}", None
+    for stp in plan["steps"]:
+        if not item.get("done", {}).get(str(stp["day"])):
+            return f"{stp['title']} (day {stp['day']})", stp["date"]
+    return "Sequence complete: decide next step", None
+
+
+def plan_markdown(rec: dict, s: dict, plan: dict, item: dict | None = None) -> str:
+    """The whole outreach plan as plain text/Markdown, for copying into a CRM or sharing."""
+    c, pr, t = plan["contact"], plan["priority"], plan["timing"]
+    lines = [f"# Outreach plan: {c['charity']} (#{rec['reg_number']})", ""]
+    if item:
+        act, due = next_action(item, plan)
+        lines += [f"Status: {item.get('outcome', 'Active')}  ·  Next action: {act}" + (f" on {due:%a %d %b %Y}" if due else ""), ""]
+    lines += [
+        "## Financial direction",
+        plan["summary"],
+        "",
+        f"## Priority: {pr['level']}",
+        *[f"- {r}" for r in pr["reasons"]],
+        "",
+        "## Evidence used for the hook (Charity Commission filings)",
+        *[f"- {h['title']}: {h['fact'] or h['line']}" for h in plan["hooks"] if h["key"] != "fallback"],
+        "",
+        "## Timing (estimate)",
+        t["text"],
+        t["guidance"],
+        f"Recommended outreach period: {t['period']}",
+        "",
+        "## Who to contact",
+        f"- Email to: {c['to']['who']} <{c['email'] or 'no email listed'}>",
+        f"- Phone: {c['phone'] or 'not listed'}",
+        f"- Website: {c['website'] or 'not listed'}",
+        f"- Likely decision-maker: {c['decision_maker']}",
+        "",
+    ]
+    for stp in plan["steps"]:
+        lines += [f"## Day {stp['day']} ({stp['date']:%a %d %b}): {stp['title']}"]
+        if stp["subject"]:
+            lines += [f"Subject: {stp['subject']}"]
+        lines += ["", stp["body"], ""]
+    if item and item.get("notes"):
+        lines += ["## Notes", item["notes"], ""]
+    lines += [f"Source: Charity Commission Register of Charities, retrieved {date.today():%d %b %Y}."]
+    return "\n".join(lines)
 
 
 def mailto(to: str | None, subject: str, body: str) -> str:

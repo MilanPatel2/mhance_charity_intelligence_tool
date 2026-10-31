@@ -94,7 +94,7 @@ def _add_cb(items):
 
 
 if st.session_state.get("_toast"):
-    st.toast(st.session_state.pop("_toast"), icon="⭐")
+    st.toast(st.session_state.pop("_toast"), icon=":material/star:")
 
 SNAP = get_snapshot()
 KEY = api_key()
@@ -119,47 +119,51 @@ def need_api() -> bool:
 
 
 PEER_WORDS = {A.ABOVE: "ahead of", A.INLINE: "in line with", A.BELOW: "behind"}
-PEER_SHORT = {A.ABOVE: "▲ ahead of", A.INLINE: "► in line with", A.BELOW: "▼ behind"}
+PEER_SHORT = {A.ABOVE: "ahead of", A.INLINE: "in line with", A.BELOW: "behind"}
 
 
 def small_threshold() -> float:
-    """'Small charity' = income under this. Set on the Find new prospects page; used everywhere."""
-    return float(st.session_state.get("small_threshold", A.SMALL_CHARITY))
+    """'Small charity' = income under the minimum income chosen on Find new prospects (default £100k)."""
+    return float(st.session_state.get("min_income") or A.SMALL_CHARITY)
 
 
-# ---------- sidebar ----------
-with st.sidebar:
-    st.header("Charity Growth Finder")
-    st.caption("For the mhance sales team: find UK charities that are growing, and get in touch at the right time.")
+# Rule settings: changed on the Settings page, read everywhere.
+band = st.session_state.get("band_pct", int(A.FLAT_BAND * 100)) / 100
+hot = st.session_state.get("hot_pct", int(A.HOT_THRESHOLD * 100)) / 100
+
+
+def page_settings() -> None:
+    st.markdown("### Settings")
     if not KEY:
         st.warning("Live look-ups are off (no Charity Commission key set up).")
     elif API_PROBLEM:
         st.error(f"Can't reach the Charity Commission: {API_PROBLEM}")
     else:
-        st.success("Live data from the Charity Commission", icon=":material/check_circle:")
+        st.success("Connected to live Charity Commission data.", icon=":material/check_circle:")
     st.caption(f"Prospect list last updated **{LIST_DATE}** from the Charity Commission's daily download.")
 
-    with st.expander("What the figures and labels mean", icon=":material/info:"):
-        st.markdown(
-            "- **Total income**: everything the charity received in its financial year (donations, grants, contracts, "
-            "trading, investments). It's the charity equivalent of revenue.\n"
-            "- **Total expenditure**: everything it spent in the same year.\n"
-            "- **Net surplus / deficit** = total income − total expenditure. Income and expenditure are never added together.\n"
-            "- **▲ Up / ► Flat / ▼ Down**: compares the oldest and newest of the last 3 yearly accounts. "
-            "A change of more than 5% counts as up or down.\n"
-            "- **Similar charities**: charities that were the same size 3 years ago.\n"
-            "- **🔥 Hot prospect**: income up more than 10% on the year before.\n"
-            "- **High percentage growth from a small base**: the growth started from income under the small-charity "
-            "threshold (set on *Find new prospects*). It's shown, but doesn't raise priority on its own.\n"
-            "- **Priority** 🟢 High = hot *and* growing faster than similar charities · 🟡 Medium = one of the two · "
-            "⚪ Low = neither, a small base, not enough history, or overdue accounts · 🔴 Check first = the figures "
-            "look like a typo in the official records.\n"
-            "- **Missing figures** are shown as –. Nothing is estimated or filled in."
-        )
-        st.caption("Adjust the rules")
-        band = st.slider("A change counts as up/down above (±%)", 0, 20, int(A.FLAT_BAND * 100)) / 100
-        hot = st.slider("Hot prospect: income up more than (%) on the year before", 0, 50, int(A.HOT_THRESHOLD * 100)) / 100
-        st.caption(f"Small charity: income under **{A.money(small_threshold())}** (change it on *Find new prospects*).")
+    st.markdown("#### Rules")
+    st.slider("A change counts as up/down above (±%)", 0, 20, int(A.FLAT_BAND * 100), key="band_pct", persist_state="session")
+    st.slider("Hot prospect: income up more than (%) on the year before", 0, 50, int(A.HOT_THRESHOLD * 100), key="hot_pct", persist_state="session")
+    st.caption(f"Small charity: income under **{A.money(small_threshold())}**. Change it with *Minimum income* on *Find new prospects*.")
+
+    st.markdown("#### What the figures and labels mean")
+    st.markdown(
+        "- **Total income**: everything the charity received in its financial year (donations, grants, contracts, "
+        "trading, investments). It's the charity equivalent of revenue.\n"
+        "- **Total expenditure**: everything it spent in the same year.\n"
+        "- **Net surplus / deficit** = total income − total expenditure. Income and expenditure are never added together.\n"
+        "- **Up / Flat / Down**: compares the oldest and newest of the last 3 yearly accounts. "
+        f"A change of more than {band:.0%} counts as up or down.\n"
+        "- **Similar charities**: charities that were the same size 3 years ago.\n"
+        f"- **Hot prospect**: income up more than {hot:.0%} on the year before.\n"
+        "- **High percentage growth from a small base**: the growth started from income under the small-charity "
+        "threshold (the minimum income set on *Find new prospects*, or £100k if none). It's shown, but doesn't raise priority on its own.\n"
+        "- **Priority**: High = hot *and* growing faster than similar charities · Medium = one of the two · "
+        "Low = neither, a small base, not enough history, or overdue accounts · Check first = the figures "
+        "look like a typo in the official records.\n"
+        "- **Missing figures** are shown as –. Nothing is estimated or filled in."
+    )
 
 
 def summary_of(rec: dict) -> dict:
@@ -271,7 +275,7 @@ def verdict(s: dict, pr: dict) -> None:
     lines = [f"**{A.PRIORITY_LABELS[level]} · {heading}**"] + [f"- {r}" for r in pr["reasons"]]
     tags = []  # hot-prospect and small-base wording already come from priority()
     if s["spike"]:
-        tags.append("⚡ Income more than doubled in a year. Check whether it's a one-off such as a legacy.")
+        tags.append("Income more than doubled in a year. Check whether it's a one-off such as a legacy.")
     if s["gaps"]:
         tags.append("A year's accounts are missing: " + "; ".join(f"nothing filed between {a} and {b}" for a, b in s["gaps"]) + ". Nothing has been filled in.")
     lines += [f"- {t}" for t in tags]
@@ -567,7 +571,7 @@ def page_lookup() -> None:
 
 
 # ---------- page 2: find new prospects (many charities at once) ----------
-SMALL_OPTIONS = [10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000]
+MIN_OPTIONS = [0, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000]
 MAX_OPTIONS = [None, 1_000_000, 5_000_000, 10_000_000, 25_000_000, 100_000_000]
 
 
@@ -575,26 +579,20 @@ def page_prospects() -> None:
     st.markdown("### Find new prospects")
     st.caption(f"Filter all ~172,000 registered charities to build a call list. List last updated {LIST_DATE}.")
 
-    # Size filters first and always visible: small charities distort % growth, so the user sees and controls this.
-    with st.container(border=True):
-        st.markdown("**Charity size** (by total income in the latest year)")
-        z1, z2, z3 = st.columns([1.2, 1, 1], vertical_alignment="bottom")
-        exclude_small = z1.toggle("Leave out small charities", value=True, key="exclude_small", persist_state="session")
-        small = z2.selectbox(
-            "Small charity = income under",
-            SMALL_OPTIONS,
-            index=SMALL_OPTIONS.index(A.SMALL_CHARITY),
-            format_func=A.money,
-            key="small_threshold",
-            persist_state="session",
-            help="Also used everywhere to label 'high percentage growth from a small base'.",
-        )
-        max_inc = z3.selectbox(
-            "Largest income", MAX_OPTIONS, format_func=lambda v: "No maximum" if v is None else f"Up to {A.money(v)}", key="max_income", persist_state="session"
-        )
-    df = prospect_table(band, hot, float(small))
-
-    f1, f2, f3 = st.columns(3)
+    f0, f1, f2, f3 = st.columns(4)
+    min_inc = f0.selectbox(
+        "Minimum income",
+        MIN_OPTIONS,
+        index=MIN_OPTIONS.index(A.SMALL_CHARITY),
+        format_func=lambda v: "Any (include small charities)" if not v else f"{A.money(v)} or more",
+        key="min_income",
+        persist_state="session",
+        help="Total income in the latest year. Charities below this are left out, and growth from below it is labelled "
+        "'high percentage growth from a small base'.",
+    )
+    small = float(min_inc or A.SMALL_CHARITY)
+    exclude_small = bool(min_inc)
+    df = prospect_table(band, hot, small)
     areas = f1.multiselect("Area they work in", area_options(), placeholder="Anywhere", key="areas", persist_state="session")
     sectors = f2.multiselect("Type of work", sector_options(), placeholder="Any", key="sectors", persist_state="session")
     prio_f = f3.multiselect(
@@ -613,13 +611,20 @@ def page_prospects() -> None:
         trend_f = h1.selectbox(
             "Income growth compared with similar charities",
             ["Any", A.ABOVE, A.INLINE, A.BELOW],
-            format_func=lambda x: {"Any": "Any", A.ABOVE: "▲ Growing faster", A.INLINE: "► About the same", A.BELOW: "▼ Growing slower"}[x],
+            format_func=lambda x: {"Any": "Any", A.ABOVE: "Growing faster", A.INLINE: "About the same", A.BELOW: "Growing slower"}[x],
             key="trend_f",
             persist_state="session",
         )
+        max_inc = h1.selectbox(
+            "Maximum income",
+            MAX_OPTIONS,
+            format_func=lambda v: "No maximum" if v is None else f"Up to {A.money(v)}",
+            key="max_income",
+            persist_state="session",
+        )
         with h2:
-            hot_only = st.checkbox("🔥 Hot prospects only (income up more than 10% last year, not from a small base)", key="hot_only", persist_state="session")
-            hide_spikes = st.checkbox("Leave out ⚡ one-off jumps (income more than doubled)", key="hide_spikes", persist_state="session")
+            hot_only = st.checkbox("Hot prospects only (income up more than 10% last year, not from a small base)", key="hot_only", persist_state="session")
+            hide_spikes = st.checkbox("Leave out one-off jumps (income more than doubled)", key="hide_spikes", persist_state="session")
             hide_stale = st.checkbox("Leave out charities with overdue accounts", value=True, key="hide_stale", persist_state="session")
             hide_unreliable = st.checkbox("Leave out charities without enough history for a trend", key="hide_unreliable", persist_state="session")
 
@@ -645,7 +650,7 @@ def page_prospects() -> None:
     no_accounts = m & df["latest_income"].isna()
     if exclude_small:
         is_small = m & (df["latest_income"] < small)
-        hidden.append((int(is_small.sum()), f"small charities (income under {A.money(small)})"))
+        hidden.append((int(is_small.sum()), f"with income under {A.money(small)}"))
         hidden.append((int(no_accounts.sum()), "with no accounts on record"))
         m &= ~is_small & ~no_accounts
     for on, col, words in (
@@ -669,9 +674,9 @@ def page_prospects() -> None:
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Charities found", f"{len(res):,}")
-    k2.metric("🟢 High priority", f"{int((res['priority'] == A.HIGH).sum()):,}")
+    k2.metric("High priority", f"{int((res['priority'] == A.HIGH).sum()):,}")
     k3.metric(
-        "🔥 Hot prospects", f"{int(res['_hot'].sum()):,}", help="Income up more than the hot-prospect line last year, not counting growth from a small base."
+        "Hot prospects", f"{int(res['_hot'].sum()):,}", help="Income up more than the hot-prospect line last year, not counting growth from a small base."
     )
     k4.metric(
         "Small-base growth",
@@ -682,7 +687,7 @@ def page_prospects() -> None:
     if hidden:
         st.caption("**Not shown:** " + " · ".join(f"{n:,} {w}" for n, w in hidden) + ". Change the matching option to include them.")
     else:
-        st.caption("Nothing is being left out by the size or 'leave out' options.")
+        st.caption("Nothing is being left out by the income or 'leave out' options.")
     if sort_by.startswith("Fastest %") and not exclude_small:
         st.warning(
             "Sorting by % growth with small charities included puts tiny charities first. Their % changes come from a small base.", icon=":material/warning:"
@@ -702,9 +707,9 @@ def page_prospects() -> None:
         if pd.notna(r.small_base_growth) and bool(r.small_base_growth):
             bits.append("high % growth from a small base")
         elif pd.notna(r.hot) and bool(r.hot):
-            bits.append("🔥 hot")
+            bits.append("hot prospect")
         if pd.notna(r.spike) and bool(r.spike):
-            bits.append("⚡ check one-off")
+            bits.append("check for a one-off")
         return " · ".join(bits)
 
     if res.empty:
@@ -783,7 +788,7 @@ def page_list() -> None:
                         bits.append(A.LABELS.get(s["status"], s["status"]))
                     if latest.get("net") is not None:
                         bits.append(A.net_label(latest["net"]))
-                    tag = " · high % growth from a small base" if s["small_base_growth"] else " · 🔥 hot" if s["hot"] else ""
+                    tag = " · high % growth from a small base" if s["small_base_growth"] else " · hot prospect" if s["hot"] else ""
                     bits.append(f"{A.PRIORITY_LABELS[pr['level']]} priority" + tag)
                     rows.append({"reg": n, "name": rec["name"], "line": " · ".join(bits)})
                     export_rows.append(
@@ -820,7 +825,7 @@ def page_list() -> None:
 
 
 # ---------- outreach ----------
-CHANNEL_ICON = {"email": "✉️", "call": "📞", "linkedin": "💼"}
+CHANNEL_ICON = {"email": ":material/mail:", "call": ":material/call:", "linkedin": ":material/work:"}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -860,12 +865,13 @@ def page_my() -> None:
     st.markdown("### My prospects")
     st.caption(
         "Each saved charity gets an outreach plan: why it may be worth contacting, when to get in touch, and drafts for "
-        "4 steps (first email with your Calendly link, follow-up email, phone call, LinkedIn). Nothing is sent for you. "
-        "Key: 📊 = from the charity's accounts · 🕒 = our estimate · ✍️ = a draft for you to edit."
+        "4 steps (first email with your Calendly link, follow-up email, phone call, LinkedIn). Nothing is sent for you."
     )
     if need_api():
         cfg = STORE.settings
-        with st.expander("✍️ Your name and Calendly link (used to sign every email)", expanded=not (cfg.get("name") and cfg.get("calendly"))):
+        with st.expander(
+            "Your name and Calendly link (used to sign every email)", icon=":material/edit:", expanded=not (cfg.get("name") and cfg.get("calendly"))
+        ):
             s1, s2, s3 = st.columns(3)
             s1.text_input("Your name", cfg.get("name", ""), key="set_name", on_change=_save_settings)
             s2.text_input("Your role", cfg.get("role", ""), key="set_role", on_change=_save_settings, placeholder="e.g. Business Development Manager")
@@ -878,7 +884,7 @@ def page_my() -> None:
             )
             t2.number_input("Budget planning ends (months before year end)", 0, 11, int(cfg["budget_end_months"]), key="set_bend", on_change=_save_settings)
             st.caption(
-                "🕒 Timing is an **estimate**: we know when each charity's financial year ends (from its accounts), not when it "
+                "Timing is an **estimate**: we know when each charity's financial year ends (from its accounts), not when it "
                 "actually sets its budget. Change the months above if you know better."
             )
 
@@ -923,7 +929,7 @@ def page_my() -> None:
             m1.metric("Saved prospects", len(table))
             m2.metric("Active sequences", len(active))
             m3.metric("Due today or overdue", sum(isinstance(d, date) and d <= today for d in active["Due"]))
-            m4.metric("📅 Meetings booked", int((table["Outcome"] == "Meeting booked").sum()))
+            m4.metric("Meetings booked", int((table["Outcome"] == "Meeting booked").sum()))
 
             # One row per prospect with an "Open plan" button (no tick boxes).
             if st.session_state.get("plan_reg") not in set(table["reg"]):
@@ -933,13 +939,13 @@ def page_my() -> None:
                 due = row.get("Due") if isinstance(row.get("Due"), date) else None
                 with st.container(border=True):
                     c1, c2 = st.columns([6, 1.4], vertical_alignment="center")
-                    when = (f" · due {fmt_day(due)}" + (" ⚠ overdue" if due < today else "")) if due else ""
+                    when = (f" · due {fmt_day(due)}" + (" · :orange[overdue]" if due < today else "")) if due else ""
                     c1.markdown(
                         f"{row.get('Priority') or ''} **{row['Charity']}** · {row.get('Why') or ''}  \n"
                         f":gray[Next: {row.get('Next action') or '–'}{when} · Outcome: {row['Outcome']} · "
                         f"Best time (estimate): {row.get('Best time (estimate)') or '–'}]"
                     )
-                    if c2.button("✓ Showing below" if current else "Open plan", key=f"open_{row['reg']}", disabled=current, width="stretch"):
+                    if c2.button("Showing below" if current else "Open plan", key=f"open_{row['reg']}", disabled=current, width="stretch"):
                         st.session_state["plan_reg"] = row["reg"]
                         st.rerun()
             reg = st.session_state["plan_reg"]
@@ -993,38 +999,30 @@ def page_my() -> None:
                     format="DD/MM/YYYY",
                 )
                 h4.write("")
-                h4.button("🗑 Remove", key=f"rm_{reg}", on_click=_remove, args=(reg,), width="stretch")
+                h4.button("Remove", icon=":material/delete:", key=f"rm_{reg}", on_click=_remove, args=(reg,), width="stretch")
 
                 act, due = O.next_action(item, plan)
-                st.markdown(f"**Next action:** {act}" + (f" · due **{fmt_day(due)}**" if due else "") + (" ⚠ overdue" if due and due < today else ""))
+                st.markdown(f"**Next action:** {act}" + (f" · due **{fmt_day(due)}**" if due else "") + (" · :orange[overdue]" if due and due < today else ""))
                 if item["outcome"] != "Active":
                     st.info(f"Sequence stopped: **{item['outcome']}**. Set the outcome back to Active to carry on.")
 
                 p1, p2 = st.columns([1.1, 1])
                 with p1:
-                    st.markdown(f"**💡 Why this charity may be worth contacting:** {A.PRIORITY_LABELS[pr['level']]} priority")
+                    st.markdown(f"**Why this charity may be worth contacting:** {A.PRIORITY_LABELS[pr['level']]} priority")
                     for r in pr["reasons"]:
                         st.markdown(f"- {r}")
-                    st.markdown("**📊 Financial direction** (from the accounts)")
+                    st.markdown("**Financial direction** (from the accounts)")
                     st.write(plan["summary"])
                 with p2:
-                    st.markdown("**📊 Facts the email opens with** (from the accounts)")
+                    st.markdown("**Facts the email opens with** (from the accounts)")
                     for hk in plan["hooks"]:
                         if hk["key"] == "fallback":
                             continue
-                        used = (
-                            "✉️ email 1"
-                            if hk is plan["primary"]
-                            else "✉️ email 2"
-                            if hk is plan["secondary"]
-                            else "📞 call only"
-                            if not hk["email_safe"]
-                            else "📞 call"
-                        )
+                        used = "email 1" if hk is plan["primary"] else "email 2" if hk is plan["secondary"] else "call only" if not hk["email_safe"] else "call"
                         st.markdown(f"- **{hk['title']}** ({used}): {hk['fact']}")
                     if plan["primary"]["key"] == "fallback":
                         st.caption("No strong signal in the filings, so the email uses a general opener about size and sector.")
-                    st.markdown("**🕒 Suggested time to get in touch** (estimate)")
+                    st.markdown("**Suggested time to get in touch** (estimate)")
                     (st.success if tm["now"] else st.info)(f"{tm['text']}  \n**Recommended outreach period:** {tm['period']}.  \n{tm['guidance']}")
 
                 k1, k2 = st.columns(2)
@@ -1033,12 +1031,12 @@ def page_my() -> None:
                     st.markdown(f"Email to: **{c['to']['who']}**")
                     links = []
                     if c["email"]:
-                        links.append(f"✉️ [{c['email']}](mailto:{c['email']})")
+                        links.append(f"Email: [{c['email']}](mailto:{c['email']})")
                     if c["phone"]:
-                        links.append(f"📞 [{c['phone']}](tel:{c['phone'].replace(' ', '')})")
+                        links.append(f"Phone: [{c['phone']}](tel:{c['phone'].replace(' ', '')})")
                     if c["website"]:
                         site = c["website"] if c["website"].startswith("http") else f"https://{c['website']}"
-                        links.append(f"🌐 [{c['website']}]({site})")
+                        links.append(f"Website: [{c['website']}]({site})")
                     st.markdown("  \n".join(links) or "No contact details published.")
                 with k2:
                     st.markdown("**Find the decision-maker**")
@@ -1060,7 +1058,7 @@ def page_my() -> None:
                 )
 
                 tcol1, tcol2, tcol3 = st.columns([3, 1.2, 1.2])
-                tcol1.markdown("**✍️ Drafts for you to edit**: tick each step when done")
+                tcol1.markdown("**Drafts for you to edit**: tick each step when done")
                 tcol2.download_button(
                     "Download this plan",
                     O.plan_markdown(rec, s, plan, item),
@@ -1071,7 +1069,7 @@ def page_my() -> None:
                     on_click="ignore",
                 )
                 tcol3.button(
-                    "↺ Regenerate drafts",
+                    "Regenerate drafts",
                     key=f"regen_{reg}",
                     on_click=_reset_text,
                     args=(reg,),
@@ -1085,8 +1083,8 @@ def page_my() -> None:
                     d = stp["day"]
                     done = item["done"].get(str(d), False)
                     late = (not done) and stp["date"] < today and item["outcome"] == "Active"
-                    label = f"{'✅' if done else CHANNEL_ICON[stp['channel']]}  Day {d} · {fmt_day(stp['date'])} · {stp['title']}" + (
-                        "  ⚠ overdue" if late else ""
+                    label = f"{':material/check_circle:' if done else CHANNEL_ICON[stp['channel']]}  Day {d} · {fmt_day(stp['date'])} · {stp['title']}" + (
+                        " · :orange[overdue]" if late else ""
                     )
                     with st.expander(label, expanded=not done and item["outcome"] == "Active" and d == first_open):
                         st.checkbox("Done", value=done, key=f"done_{reg}_{d}", on_change=_set_done, args=(reg, d, f"done_{reg}_{d}"))
@@ -1095,13 +1093,13 @@ def page_my() -> None:
                             subj = st.text_input("Subject", stp["subject"], key=f"txt_{reg}_{d}_subj")
                             body = st.text_area("Message (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=330)
                             b1, _ = st.columns([1, 3])
-                            b1.link_button("✉️ Open in my email app", O.mailto(to, subj, body), width="stretch")
+                            b1.link_button("Open in my email app", O.mailto(to, subj, body), icon=":material/mail:", width="stretch")
                             st.caption("Or copy it: hover the box below and click the copy icon.")
                             st.code(f"Subject: {subj}\n\n{body}", language=None, wrap_lines=True)
                         elif stp["channel"] == "call":
                             notes = st.text_area("Call script (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=380)
                             if c["phone"]:
-                                st.link_button(f"📞 Call {c['phone']}", f"tel:{c['phone'].replace(' ', '')}")
+                                st.link_button(f"Call {c['phone']}", f"tel:{c['phone'].replace(' ', '')}", icon=":material/call:")
                             st.code(notes, language=None, wrap_lines=True)
                         else:
                             note = st.text_area("Connection note (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=110)
@@ -1123,6 +1121,7 @@ nav = st.navigation(
         st.Page(page_prospects, title="Find new prospects", icon=":material/travel_explore:", url_path="find"),
         st.Page(page_list, title="Check a list", icon=":material/checklist:", url_path="list"),
         st.Page(page_my, title=f"My prospects ({len(STORE)})", icon=":material/star:", url_path="my-prospects"),
+        st.Page(page_settings, title="Settings", icon=":material/settings:", url_path="settings"),
     ],
     position="top",
 )

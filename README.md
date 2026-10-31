@@ -9,9 +9,10 @@
 | Page | What a salesperson does there | Data |
 |---|---|---|
 | **Look up a charity** (main page) | Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and CSV sit below under *More detail*. | Live API |
-| **Find new prospects** | Filter all ~172,000 registered charities. **Charity size comes first and is always visible:** leave small charities in or out, set what counts as small (default under £100k), and an optional maximum. The page says how many charities each option leaves out. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
+| **Find new prospects** | Filter all ~172,000 registered charities. **Minimum income** is the first filter (default £100k or more; choose *Any* to include small charities). The page says how many charities each option leaves out. Maximum income is under *More filters*. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
 | **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
 | **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
+| **Settings** | Data status, the up/down and hot-prospect rules (adjustable), and what every figure and label means. There is no sidebar. | – |
 
 ---
 
@@ -87,9 +88,9 @@ python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2G
 All thresholds are constants at the top of `analysis.py`.
 
 1. **Window:** the charity's **last 3 annual returns**, sorted by financial year end. Financial years end on all sorts of dates, so "3 years" means 3 returns, not 3 calendar years.
-2. **Up / Flat / Down (the brief's indicator):** total % change from the oldest to the latest of those 3 returns. **More than +5% = ▲ Up, less than −5% = ▼ Down, otherwise ► Flat.** The same rule applies to income and expenditure. The ±5% band stops a 1% wobble being sold as growth. It's adjustable in the sidebar.
+2. **Up / Flat / Down (the brief's indicator):** total % change from the oldest to the latest of those 3 returns. **More than +5% = Up, less than −5% = Down, otherwise Flat.** The same rule applies to income and expenditure. The ±5% band stops a 1% wobble being sold as growth. It's adjustable in the sidebar.
 3. **vs peers (context):** the same change compared with the **median for charities of the same size**. Size is based on income at the *start* of the window, because using latest income would push growers into bigger bands. Bands: £10k–£100k, £100k–£500k, £500k–£1m, £1m–£5m, £5m–£10m, £10m–£25m, £25m–£100m, £100m+. Every band has at least 111 up-to-date peers. Within ±5% of the median = ► In line. *Why both?* The typical charity grew ~9% over 3 years, largely inflation, so about two-thirds of £1m+ charities read as "Up". Up/flat/down answers the brief; vs peers answers "is this one actually outperforming?".
-4. **When no trend is shown (labelled, never guessed):** **◌ Under 3 yrs data** (fewer than 3 returns); **◌ Base under £10k** (% change off a tiny base is meaningless); **⚠ Check data** (income or expenditure changed more than 50× between two returns, almost always a filing error).
+4. **When no trend is shown (labelled, never guessed):** **Under 3 yrs data** (fewer than 3 returns); **Base under £10k** (% change off a tiny base is meaningless); **⚠ Check data** (income or expenditure changed more than 50× between two returns, almost always a filing error).
 5. **Missing years:** if two consecutive returns are more than 15 months apart, the page warns that a reporting year is missing. Nothing is filled in.
 6. **YoY** for each row is against the previous return on record, even if that return is outside the 3-year window.
 7. **Money terms.** Charities don't report "revenue". **Total income** is the charity equivalent, and the app calls it that. **Net surplus / deficit = total income − total expenditure** for the same year. Income and expenditure are never added together. A missing figure stays missing (–); nothing is estimated.
@@ -99,9 +100,9 @@ All thresholds are constants at the top of `analysis.py`.
 
 Very small charities produce huge percentage swings: +383% for a community association whose income went from £20k to £98k. To stop these crowding out real prospects:
 
-- **Small charity = income under £100k** by default, set on *Find new prospects* and used everywhere.
-- Growth measured from income under that line is labelled **"High percentage growth from a small base"**. It is shown, but it **doesn't raise priority**: a charity can't become Medium or High on percentage growth alone if it started small. The brief's 🔥 hot rule (+10% on the year before) still applies to everyone, but small-base cases are worded as "above the hot-prospect line, but from a small base".
-- *Find new prospects* leaves small charities out by default, using a visible switch. It always states how many charities each option hides (e.g. "Not shown: 119,286 small charities (income under £100k) · 8,860 with no accounts on record · 834 with overdue accounts"). Nothing is hidden silently.
+- **Small charity = income under £100k** by default. It follows the *Minimum income* filter on *Find new prospects* and is used everywhere.
+- Growth measured from income under that line is labelled **"High percentage growth from a small base"**. It is shown, but it **doesn't raise priority**: a charity can't become Medium or High on percentage growth alone if it started small. The brief's hot rule (+10% on the year before) still applies to everyone, but small-base cases are worded as "above the hot-prospect line, but from a small base".
+- *Find new prospects* leaves small charities out by default, using the visible *Minimum income* filter. It always states how many charities each option hides (e.g. "Not shown: 119,286 with income under £100k · 8,860 with no accounts on record · 834 with overdue accounts"). Nothing is hidden silently.
 - Sorting by % growth with small charities included shows a warning. A **£ growth** sort is offered as the fairer alternative.
 
 **Real example:** Sickle Cell Care Manchester (1162402) shows income £137k → £86k → **£88.9m**. The live API returns exactly that, so it's an error in the Commission's own record (almost certainly £88,933 typed as £88.9m). Without the guard it topped the prospect list as a "+102,902%" hot prospect; now it's 🔴 *Check first*.
@@ -112,11 +113,11 @@ No opaque score. The first rule that matches wins, and the page lists the reason
 
 | Priority | Rule |
 |---|---|
-| 🔴 Check first | Figures look like a filing error (⚠ Check data) |
-| ⚪ Low | Not enough history, tiny base, or latest accounts more than 22 months old (stale) |
-| 🟢 High | 🔥 **Hot** (income up more than 10% on the previous year, the brief's rule) **and** income growing faster than peers, neither from a small base |
-| 🟡 Medium | Hot **or** growing faster than peers, not from a small base |
-| ⚪ Low | Neither, or growth only from a small base |
+| Check first | Figures look like a filing error (Check data) |
+| Low | Not enough history, tiny base, or latest accounts more than 22 months old (stale) |
+| High | **Hot** (income up more than 10% on the previous year, the brief's rule) **and** income growing faster than peers, neither from a small base |
+| Medium | Hot **or** growing faster than peers, not from a small base |
+| Low | Neither, or growth only from a small base |
 
 The reasons also state whether latest income falls in the £1m–£100m range assumed to suit Dynamics 365 (an assumption, shown as such; it doesn't change the level). A ⚡ **Spike** (income more than doubled) is flagged so a human checks whether it's a one-off.
 
@@ -140,7 +141,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open plan** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
 - **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
 - **Plain language.** "Look up a charity", "Add to prospects", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
-- **Facts vs estimates vs drafts are marked.** 📊 = from the charity's accounts, 🕒 = our estimate, ✍️ = a draft to edit.
+- **Facts vs estimates vs drafts are marked.** Headings say which is which: "(from the accounts)", "(estimate)", "Drafts for you to edit".
 - **First screen says what to do.** A search box, example searches (Nacro, Oxfam, Cancer Research UK) and one sentence saying what you'll get.
 - **Light theme by default** (`.streamlit/config.toml`), whatever the viewer's system setting.
 

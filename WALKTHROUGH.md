@@ -15,7 +15,7 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 - Explain the two layers: **up/flat/down** is the brief's indicator (±5% over 3 returns); **vs peers** adds context, because the typical charity grew ~9%, mostly inflation, so most read as "Up".
 - **High priority**, with the reasons always visible: hot (+17.3% last year, the brief's 10% rule) **and** ahead of peers.
 - Small charities: search `300765` (Pollyfield Community Association). Income +383%, but only **+£77k**: labelled *high percentage growth from a small base*, Low priority. Then on **Find new prospects**, show the size switch and the "Not shown: …" line, so nothing is hidden silently.
-- Data you can trust: search `1162402` (Sickle Cell Care Manchester), which shows **🔴 Check first**. Its income jumps £86k → £88.9m in the Commission's own data, almost certainly a typo. Without the guard it was the top "hot prospect". Then `1207593` shows **◌ Under 3 yrs data**: labelled, not guessed.
+- Data you can trust: search `1162402` (Sickle Cell Care Manchester), which shows **Check first**. Its income jumps £86k → £88.9m in the Commission's own data, almost certainly a typo. Without the guard it was the top "hot prospect". Then `1207593` shows **◌ Under 3 yrs data**: labelled, not guessed.
 
 ## 4. Adding to outreach (1 min)
 - Press **Add to prospects**; the button turns to *In your prospects* and the *My prospects* count goes up (duplicates are impossible).
@@ -23,7 +23,7 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 
 ## 5. Hook, email and timing plan (2–3 min)
 - **My prospects:** a list with priority, best time (estimate), next action and due date. Press **Open plan** on Nacro.
-- **📊 Facts the email opens with:** strong growth (email 1), government contracts are now almost all of their income (email 2), 873 staff (call).
+- **Facts the email opens with:** strong growth (email 1), government contracts are now almost all of their income (email 2), 873 staff (call).
 - **Day 0 email:** addressed to "Dear Anna" because the published inbox is anna.barker@. It states facts from the filings and uses "can/may" for what they might mean, then your Calendly link. Show **Open in my email app** and the copy box.
 - **Timing:** *Estimate:* their year ends 31 March, so they may be planning next year's budget now (window Sep–Jan). The rule is configurable and labelled as an estimate.
 - Briefly show Day 3, the Day 5 call script and the Day 7 LinkedIn note, tick **Done**, then **Download this plan**.

@@ -51,7 +51,7 @@ def test_missing_reporting_year_is_flagged_not_filled():
 def test_priority_levels_and_reasons():
     hot_above = A.summarise(hist(2e6, 2.2e6, 2.6e6), BENCH, today=TODAY)  # +18% YoY, +30% vs peers 10%
     p = A.priority(hot_above)
-    assert p["level"] == A.HIGH and any("🔥" in r for r in p["reasons"]) and any("ahead of" in r for r in p["reasons"])
+    assert p["level"] == A.HIGH and any("hot-prospect rule" in r for r in p["reasons"]) and any("ahead of" in r for r in p["reasons"])
     hot_only = A.summarise(hist(2e6, 1.9e6, 2.15e6), BENCH, today=TODAY)  # +13% YoY, +7.5% over 3 yrs (in line)
     assert A.priority(hot_only)["level"] == A.MEDIUM
     flat = A.summarise(hist(2e6, 2e6, 2e6), BENCH, today=TODAY)

@@ -15,7 +15,7 @@ THE RULES (all thresholds live in this file)
      OK               - everything else. Only OK charities get a trend or a hot flag.
 
 3. Direction (the brief's indicator) = total % change from the oldest to the latest of
-   the 3 returns: more than +5% -> ▲ Up, less than -5% -> ▼ Down, otherwise ► Flat.
+   the 3 returns: more than +5% -> Up, less than -5% -> Down, otherwise Flat.
 
    Trend vs peers = the same change compared with similar-sized charities.
    Almost every charity's income has risen in cash terms recently (the median charity
@@ -26,14 +26,14 @@ THE RULES (all thresholds live in this file)
        growers move up a band)
      - peer baseline = the median 3-year % change in that band
      - compare the charity's % change with that baseline, e.g. peers grew +8%:
-          grew more than +13%  -> ▲ Above peers
-          grew less than +3%   -> ▼ Below peers
-          anything in between  -> ► In line   (±5% around the peer median)
+          grew more than +13%  -> Above peers
+          grew less than +3%   -> Below peers
+          anything in between  -> In line   (±5% around the peer median)
    Expenditure uses the same method against the band's median expenditure change.
 
-4. 🔥 Hot = latest year's income up more than 10% on the year before (the brief's rule,
+4. Hot = latest year's income up more than 10% on the year before (the brief's rule,
    in absolute terms), status OK, and the year before was at least £10k.
-5. ⚡ Spike = income more than doubled in a year. Real, but often a one-off (legacy,
+5. Spike = income more than doubled in a year. Real, but often a one-off (legacy,
    merger, appeal), so it's flagged for a human to check.
 6. Stale = latest return ended more than 22 months ago (charities have 10 months to
    file, so older than ~22 months means a late or missing filing).
@@ -55,8 +55,8 @@ THE RULES (all thresholds live in this file)
 PRIORITY (explainable, no score): first rule that matches wins
      Check first  figures look like a filing error (status Check data)
      Low          not enough history / tiny base / accounts overdue (stale)
-     High         🔥 hot AND growing faster than peers (neither from a small base)
-     Medium       🔥 hot OR growing faster than peers (not from a small base)
+     High         hot AND growing faster than peers (neither from a small base)
+     Medium       hot OR growing faster than peers (not from a small base)
      Low          everything else, including growth only from a small base
    Each result carries the plain-English reasons behind it.
 """
@@ -97,17 +97,17 @@ UP, FLAT, DOWN = "Up", "Flat", "Down"
 HIGH, MEDIUM, LOW, CHECK_FIRST = "High", "Medium", "Low", "Check first"
 ABOVE, INLINE, BELOW = "Above peers", "In line", "Below peers"
 LABELS = {
-    ABOVE: "▲ Above peers",
-    INLINE: "► In line",
-    BELOW: "▼ Below peers",
-    NEW: "◌ Under 3 yrs data",
-    SMALL: "◌ Base under £10k",
-    CHECK: "⚠ Check data",
-    UP: "▲ Up",
-    FLAT: "► Flat",
-    DOWN: "▼ Down",
+    ABOVE: "Above peers",
+    INLINE: "In line",
+    BELOW: "Below peers",
+    NEW: "Under 3 yrs data",
+    SMALL: "Base under £10k",
+    CHECK: "Check data",
+    UP: "Up",
+    FLAT: "Flat",
+    DOWN: "Down",
 }
-PRIORITY_LABELS = {HIGH: "🟢 High", MEDIUM: "🟡 Medium", LOW: "⚪ Low", CHECK_FIRST: "🔴 Check first"}
+PRIORITY_LABELS = {HIGH: "High", MEDIUM: "Medium", LOW: "Low", CHECK_FIRST: "Check first"}
 STATUS_HELP = {
     NEW: "Fewer than 3 annual returns on record, so it's too early to call a trend.",
     SMALL: "Income three years ago was under £10k, so percentage changes would be meaningless.",
@@ -280,7 +280,7 @@ def priority(s: dict) -> dict:
     if s["hot"] and small:
         reasons.append(f"Income up {yoy_txt} last year: above the {HOT_THRESHOLD:.0%} hot-prospect line, but from a small base.")
     elif s["hot"]:
-        reasons.append(f"🔥 Income up {yoy_txt} last year (hot-prospect rule: more than {HOT_THRESHOLD:.0%}).")
+        reasons.append(f"Income up {yoy_txt} last year (hot-prospect rule: more than {HOT_THRESHOLD:.0%}).")
     else:
         reasons.append(f"Income changed {yoy_txt} last year (not above the {HOT_THRESHOLD:.0%} hot-prospect line).")
     peer = (s["peer"] or {}).get("income")

@@ -8,10 +8,10 @@
 
 | Tab | What a salesperson does there | Data |
 |---|---|---|
-| 🔎 **Look up a charity** | Search by name (pick from a list of matches, largest first) or registration number. See income and expenditure for the last 3 returns with up/flat/down and the peer comparison, a 5-year chart, priority and why, trustees (chair first), sectors, areas, contact details, links to the Charity Commission and Companies House pages, CSV download, **📬 Add to outreach**. | Live API |
-| 🎯 **Find prospects** | Filter all ~172,000 registered charities by area (175 local authorities and regions), sector, income band, priority and trend. Sorted by priority, then size. Tick one row to open it, or several to add them all to outreach. Export to CSV. | Daily bulk extract |
-| 📋 **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
-| 📬 **Outreach** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
+| 🔎 **Find a charity** | Search by name (pick from a list of matches, largest first) or registration number. See income and expenditure for the last 3 returns with up/flat/down and the peer comparison, a 5-year chart, priority and why, trustees (chair first), sectors, areas, contact details, links to the Charity Commission and Companies House pages, CSV download, **⭐ Save as prospect**. | Live API |
+| 🎯 **Find new prospects** | Filter all ~172,000 registered charities by area (175 local authorities and regions), sector, income band, priority and trend. Sorted by priority, then size. Each charity has **View details** and **⭐ Save** buttons; save a whole page at once; 15 per page. Export to CSV. | Daily bulk extract |
+| 📋 **Check a list of charities** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
+| ⭐ **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
 
 ---
 
@@ -114,11 +114,20 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Evidence and hook.** Hooks fire only from figures in the filings: strong growth; government contracts as 30%+ of income or up 20%+; trading income up 25% and £100k+; a new chair (18 months) or 2+ new trustees (12 months); 50+ staff or 200+ volunteers. "Costs outpacing income" is used in the call script only, as it's too sensitive for a cold email. The strongest hook opens email 1 and the second strongest opens the day-3 follow-up. With no signal, a neutral size/sector opener is used and labelled as such.
 - **Careful wording.** Emails say what the data shows, then use "can", "may" or "often" for what that might mean. They never claim problems, technology, budgets, buying intent or named staff that the data doesn't contain. A test bans phrases like "usually means" and "your systems are".
 - **Recipient.** A named published address (anna.barker@) gets "Dear Anna"; a generic one (info@) is addressed to the chair from the trustee list; otherwise "Dear Trustees". The register lists trustees, not staff, so the plan links to LinkedIn *searches* for the CEO, finance director and chair rather than scraping personal details (GDPR/PECR).
-- **Timing is an estimate.** Charities usually plan next year's budget a few months before their year end. We know the year end from filings, not the actual budget cycle, so the plan says **"Estimate"** and shows the rule: by default the window is **6 to 2 months before year end**, configurable in *Your details and timing rule*. Output: whether now is inside the window, the recommended outreach period, and guidance to have a first conversation before the window closes.
+- **Timing is an estimate.** Charities usually plan next year's budget a few months before their year end. We know the year end from filings, not the actual budget cycle, so the plan says **"Estimate"** and shows the rule: by default the window is **6 to 2 months before year end**, configurable in *Your name and Calendly link*. Output: whether now is inside the window, the recommended outreach period, and guidance to have a first conversation before the window closes.
 - **Sequence.** Day 0 email (hook + mhance + Calendly) → Day 3 follow-up (second angle) → Day 5 call script (questions, voicemail) → Day 7 LinkedIn note (≤300 chars). Days are **working days**. Each step has a Done tick box; Outcome (Active, Replied, Meeting booked, Not interested, Paused) stops the sequence; Next action and due date update automatically.
 - **Copy and export.** Each draft can be edited, opened in your email app, or copied from a copy box. "Download this plan" gives a Markdown file with everything; "Download every prospect's sequence" gives a CSV for mail merge or CRM import.
 
 ---
+
+## Usability decisions (tested as a first-time salesperson)
+
+- **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **⭐ Save** and **Open plan** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
+- **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
+- **Plain language.** "Find a charity", "Save as prospect", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
+- **Facts vs estimates vs drafts are marked.** 📊 = from the charity's accounts, 🕒 = our estimate, ✍️ = a draft to edit.
+- **First screen says what to do.** A one-line 4-step guide plus example searches (Nacro, Oxfam, Cancer Research UK) for an empty search box.
+- **Light theme by default** (`.streamlit/config.toml`), whatever the viewer's system setting.
 
 ## Key decisions and alternatives considered
 

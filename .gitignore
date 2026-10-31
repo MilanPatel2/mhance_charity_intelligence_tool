@@ -9,3 +9,4 @@ api_key.txt
 *.zip
 outreach.json
 .DS_Store
+.ruff_cache/

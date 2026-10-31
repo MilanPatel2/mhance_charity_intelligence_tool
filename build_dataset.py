@@ -18,6 +18,7 @@ Usage:
     python build_dataset.py --download          # fetch the latest extract, then build
     python build_dataset.py --src ./bulk        # build from already-unzipped files
 """
+
 from __future__ import annotations
 
 import argparse
@@ -69,22 +70,24 @@ def build(src: Path) -> None:
     for r in stream(f("charity")):
         if r["charity_registration_status"] != "Registered" or r["linked_charity_number"] != 0:
             continue
-        rows.append({
-            "reg_number": r["registered_charity_number"],
-            "org_number": r["organisation_number"],
-            "name": r["charity_name"],
-            "charity_type": r["charity_type"],
-            "reporting_status": r["charity_reporting_status"],
-            "registered_on": (r["date_of_registration"] or "")[:10],
-            "latest_income": r["latest_income"],
-            "latest_expenditure": r["latest_expenditure"],
-            "postcode": r["charity_contact_postcode"],
-            "web": r["charity_contact_web"],
-            "email": r["charity_contact_email"],
-            "phone": r["charity_contact_phone"],
-            "company_number": r["charity_company_registration_number"],
-            "extract_date": (r["date_of_extract"] or "")[:10],
-        })
+        rows.append(
+            {
+                "reg_number": r["registered_charity_number"],
+                "org_number": r["organisation_number"],
+                "name": r["charity_name"],
+                "charity_type": r["charity_type"],
+                "reporting_status": r["charity_reporting_status"],
+                "registered_on": (r["date_of_registration"] or "")[:10],
+                "latest_income": r["latest_income"],
+                "latest_expenditure": r["latest_expenditure"],
+                "postcode": r["charity_contact_postcode"],
+                "web": r["charity_contact_web"],
+                "email": r["charity_contact_email"],
+                "phone": r["charity_contact_phone"],
+                "company_number": r["charity_company_registration_number"],
+                "extract_date": (r["date_of_extract"] or "")[:10],
+            }
+        )
     charities = pd.DataFrame(rows)
     keep = set(charities["org_number"])
     print(f"Registered main charities: {len(charities):,}")
@@ -95,7 +98,7 @@ def build(src: Path) -> None:
         if r["organisation_number"] in keep and r["linked_charity_number"] == 0:
             cls[r["organisation_number"]][r["classification_type"]].append(r["classification_description"])
     for col, t in [("sectors", "What"), ("beneficiaries", "Who"), ("methods", "How")]:
-        charities[col] = charities["org_number"].map(lambda o: " | ".join(cls[o][t]) if o in cls else "")
+        charities[col] = charities["org_number"].map(lambda o, t=t: " | ".join(cls[o][t]) if o in cls else "")
 
     # 3. Geography: local authorities and regions they operate in
     geo = defaultdict(lambda: defaultdict(list))

@@ -40,12 +40,24 @@ THE RULES (all thresholds live in this file)
 7. Gaps = two consecutive returns more than 15 months apart: a reporting year is missing,
    so the "3 returns" span more than 3 years. Shown to the user, never filled in.
 
+8. Money terms. Charities don't report "revenue"; TOTAL INCOME is the charity equivalent
+   and is what we show. NET SURPLUS / DEFICIT = total income − total expenditure for the
+   same year. Income and expenditure are never added together. If a figure is missing
+   it stays missing (shown as "–"); nothing is estimated.
+
+9. Small base. A charity is "small" if its income is under SMALL_CHARITY (default £100k,
+   configurable in the app). Growth measured from a small starting income (income at the
+   start of the 3-year window, or the year before for the 1-year change) is labelled
+   "High percentage growth from a small base" and does NOT raise priority on its own:
+   +50% on £60k is £30k, which says little about whether a charity needs Dynamics 365.
+   Every % change is shown next to its £ change so the size is always visible.
+
 PRIORITY (explainable, no score): first rule that matches wins
      Check first  figures look like a filing error (status Check data)
      Low          not enough history / tiny base / accounts overdue (stale)
-     High         🔥 hot AND growing faster than peers
-     Medium       🔥 hot OR growing faster than peers
-     Low          everything else
+     High         🔥 hot AND growing faster than peers (neither from a small base)
+     Medium       🔥 hot OR growing faster than peers (not from a small base)
+     Low          everything else, including growth only from a small base
    Each result carries the plain-English reasons behind it.
 """
 
@@ -64,6 +76,7 @@ MIN_BASE = 10_000
 SPIKE = 1.0  # +100% in a year
 SUSPECT_RATIO = 50  # 50x jump or drop between returns = check data
 STALE_MONTHS = 22
+SMALL_CHARITY = 100_000  # income under this = small charity; % growth from here is flagged, not rewarded
 
 SIZE_BANDS = [  # (lower, upper, label); based on income at the start of the window
     (1e4, 1e5, "£10k–£100k"),
@@ -151,7 +164,14 @@ def _months_since(end, today: date) -> int:
 
 
 # ---------- one charity ----------
-def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT_BAND, hot: float = HOT_THRESHOLD, today: date | None = None) -> dict:
+def summarise(
+    history: list[dict],
+    bench: dict | None = None,
+    band: float = FLAT_BAND,
+    hot: float = HOT_THRESHOLD,
+    today: date | None = None,
+    small: float = SMALL_CHARITY,
+) -> dict:
     """history: [{period_end, income, expenditure}, ...] in any order.
     bench: output of benchmarks() -> {band_label: {"income": median, "expenditure": median, "n": count}}"""
     today = today or date.today()
@@ -176,19 +196,34 @@ def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT
         "income_direction": None,
         "expenditure_direction": None,
         "gaps": [],
+        "income_change_abs": None,
+        "expenditure_change_abs": None,
+        "income_yoy_abs": None,
+        "small_base": False,
+        "small_base_growth": False,
+        "small_threshold": small,
     }
+    for r in rows:  # net surplus (+) / deficit (-): income minus expenditure, never estimated
+        e = r.get("expenditure")
+        r["net"] = r["income"] - e if e is not None and not pd.isna(e) else None
     for i, r in enumerate(last):  # YoY for display, vs the return before (even if outside the window)
         j = len(rows) - len(last) + i - 1
         prev = rows[j] if j >= 0 else None
         for col in ("income", "expenditure"):
             p, c = (prev or {}).get(col), r.get(col)
             r[f"{col}_yoy"] = (c - p) / p if prev and p and p > 0 and c is not None else None
+            r[f"{col}_yoy_abs"] = c - p if prev and p is not None and c is not None else None
     if not last:
         return out
     out["latest_period_end"] = last[-1]["period_end"]
     out["stale"] = _months_since(last[-1]["period_end"], today) > STALE_MONTHS
     out["gaps"] = find_gaps(last)
     out["income_yoy"] = last[-1].get("income_yoy")
+    out["income_yoy_abs"] = last[-1].get("income_yoy_abs")
+    if len(last) >= 2:
+        out["income_change_abs"] = last[-1]["income"] - last[0]["income"]
+        e0, e1 = last[0].get("expenditure"), last[-1].get("expenditure")
+        out["expenditure_change_abs"] = e1 - e0 if e0 is not None and e1 is not None else None
 
     if len(last) < YEARS:
         status = NEW
@@ -216,6 +251,8 @@ def summarise(history: list[dict], bench: dict | None = None, band: float = FLAT
     yoy = out["income_yoy"]
     out["hot"] = yoy is not None and yoy > hot and last[-2]["income"] >= MIN_BASE
     out["spike"] = yoy is not None and yoy > SPIKE
+    out["small_base"] = min(last[0]["income"], last[-2]["income"]) < small
+    out["small_base_growth"] = out["small_base"] and ((yoy is not None and yoy > hot) or out["income_change"] > hot)
     return out
 
 
@@ -237,22 +274,33 @@ def priority(s: dict) -> dict:
             "reasons": [f"Latest accounts are for the year ending {s['latest_period_end']}, so they're overdue and the figures may be out of date."],
         }
     reasons = []
+    small = s.get("small_base", False)
     above = s["income_trend"] == ABOVE
-    if s["hot"]:
-        reasons.append(f"🔥 Income up {pct(s['income_yoy'])} last year (hot-prospect rule: more than {HOT_THRESHOLD:.0%}).")
+    yoy_txt = pct_abs(s["income_yoy"], s.get("income_yoy_abs"))
+    if s["hot"] and small:
+        reasons.append(f"Income up {yoy_txt} last year: above the {HOT_THRESHOLD:.0%} hot-prospect line, but from a small base.")
+    elif s["hot"]:
+        reasons.append(f"🔥 Income up {yoy_txt} last year (hot-prospect rule: more than {HOT_THRESHOLD:.0%}).")
     else:
-        reasons.append(f"Income changed {pct(s['income_yoy'])} last year (not above the {HOT_THRESHOLD:.0%} hot-prospect line).")
+        reasons.append(f"Income changed {yoy_txt} last year (not above the {HOT_THRESHOLD:.0%} hot-prospect line).")
     peer = (s["peer"] or {}).get("income")
     if peer is not None:
         verb = {ABOVE: "ahead of", INLINE: "in line with", BELOW: "behind"}[s["income_trend"]]
-        reasons.append(f"Income {pct(s['income_change'])} over 3 returns, {verb} similar-sized charities ({pct(peer)}).")
+        reasons.append(f"Income {pct_abs(s['income_change'], s.get('income_change_abs'))} over 3 returns, {verb} similar-sized charities ({pct(peer)}).")
+    if small:
+        lead = "High percentage growth from a small base" if s.get("small_base_growth") else "Small charity"
+        reasons.append(
+            f"{lead}: income started under {money(s.get('small_threshold', SMALL_CHARITY))}, so percentage changes "
+            "look bigger than they are. Growth alone doesn't raise its priority."
+        )
     if latest is not None:
         lo, hi = TARGET_SIZE
         fit = "inside" if lo <= latest < hi else "outside"
         reasons.append(f"Latest income {money(latest)}, {fit} the £1m–£100m range assumed to suit Dynamics 365.")
     if s["gaps"]:
         reasons.append("A reporting year is missing between returns, so treat the trend with care.")
-    level = HIGH if s["hot"] and above else MEDIUM if s["hot"] or above else LOW
+    hot_sig, above_sig = s["hot"] and not small, above and not small
+    level = HIGH if hot_sig and above_sig else MEDIUM if hot_sig or above_sig else LOW
     return {"level": level, "reasons": reasons}
 
 
@@ -287,6 +335,9 @@ def base_table(fin: pd.DataFrame, today: date | None = None) -> pd.DataFrame:
     ok = t["status"] == OK
     t["size_band"] = t["income_y1"].map(size_band).where(ok)
     t["income_change"] = (t["income_y3"] / t["income_y1"] - 1).where(ok)
+    t["income_change_abs"] = (t["income_y3"] - t["income_y1"]).where(t["n_years"] >= 2)
+    t["expenditure_change_abs"] = (t["expenditure_y3"] - t["expenditure_y1"]).where(t["n_years"] >= 2)
+    t["net_latest"] = t["income_y3"] - t["expenditure_y3"]
     e1 = t["expenditure_y1"].where(t["expenditure_y1"] > 0)
     t["expenditure_change"] = (t["expenditure_y3"] / e1 - 1).where(ok)
     p = latest["income_prev"]
@@ -307,7 +358,7 @@ def benchmarks(base: pd.DataFrame) -> dict:
     return out
 
 
-def apply_trends(base: pd.DataFrame, bench: dict, band: float = FLAT_BAND, hot: float = HOT_THRESHOLD) -> pd.DataFrame:
+def apply_trends(base: pd.DataFrame, bench: dict, band: float = FLAT_BAND, hot: float = HOT_THRESHOLD, small: float = SMALL_CHARITY) -> pd.DataFrame:
     t = base.copy()
     ok = t["status"] == OK
     for col in ("income", "expenditure"):
@@ -324,8 +375,11 @@ def apply_trends(base: pd.DataFrame, bench: dict, band: float = FLAT_BAND, hot: 
         ch = t[f"{col}_change"]
         d = pd.Series(np.select([ch > band, ch < -band], [UP, DOWN], FLAT), index=t.index, dtype=object)
         t[f"{col}_direction"] = d.where(ok & ch.notna(), None)
-    above = t["income_trend"] == ABOVE
-    t["priority"] = np.select([t["status"] == CHECK, ~ok | t["stale"], t["hot"] & above, t["hot"] | above], [CHECK_FIRST, LOW, HIGH, MEDIUM], LOW)
+    t["small_base"] = ok & (t[["income_y1", "income_y2"]].min(axis=1) < small)
+    t["small_base_growth"] = t["small_base"] & ((t["income_yoy"] > hot) | (t["income_change"] > hot))
+    above = (t["income_trend"] == ABOVE) & ~t["small_base"]
+    hot_sig = t["hot"] & ~t["small_base"]
+    t["priority"] = np.select([t["status"] == CHECK, ~ok | t["stale"], hot_sig & above, hot_sig | above], [CHECK_FIRST, LOW, HIGH, MEDIUM], LOW)
     return t
 
 
@@ -347,3 +401,28 @@ def money(v) -> str:
 
 def pct(v) -> str:
     return "–" if v is None or pd.isna(v) else f"{v:+.1%}"
+
+
+def signed_money(v) -> str:
+    """+£1.2m / -£340k: a £ change, always with its sign."""
+    if v is None or pd.isna(v):
+        return "–"
+    return ("+" if v >= 0 else "") + money(v)
+
+
+def pct_abs(change, abs_change) -> str:
+    """'+12.0% (+£1.2m)': every % shown with the £ it represents, so small bases are obvious."""
+    if change is None or pd.isna(change):
+        return signed_money(abs_change) if abs_change is not None and not pd.isna(abs_change) else "–"
+    if abs_change is None or pd.isna(abs_change):
+        return pct(change)
+    return f"{pct(change)} ({signed_money(abs_change)})"
+
+
+def net_label(v) -> str:
+    """Net result in words: '£1.2m surplus' / '£340k deficit'."""
+    if v is None or pd.isna(v):
+        return "–"
+    if v == 0:
+        return "Break-even"
+    return f"{money(abs(v))} {'surplus' if v > 0 else 'deficit'}"

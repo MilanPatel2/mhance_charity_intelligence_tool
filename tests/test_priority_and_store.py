@@ -159,3 +159,45 @@ def test_plan_export_contains_everything():
     ):
         assert part in md, part
     assert "Income £2.6m" in plan["summary"] and "up +30.0%" in plan["summary"]
+
+
+# ---------- money terms and small charities ----------
+def test_net_is_income_minus_expenditure_and_never_invented():
+    h = hist(2e6, 2.1e6, 2.3e6, exp=[1.9e6, 2.2e6, 2.0e6])
+    s = A.summarise(h, BENCH, today=TODAY)
+    assert [y["net"] for y in s["years"]] == [pytest.approx(1e5), pytest.approx(-1e5), pytest.approx(3e5)]
+    h[1]["expenditure"] = None  # missing figure stays missing
+    assert A.summarise(h, BENCH, today=TODAY)["years"][1]["net"] is None
+    assert A.net_label(3e5) == "£300k surplus" and A.net_label(-1e5) == "£100k deficit" and A.net_label(None) == "–"
+
+
+def test_every_percentage_comes_with_its_pound_change():
+    s = A.summarise(hist(2e6, 2.2e6, 2.6e6), BENCH, today=TODAY)
+    assert s["income_change_abs"] == pytest.approx(6e5) and s["income_yoy_abs"] == pytest.approx(4e5)
+    assert A.pct_abs(s["income_change"], s["income_change_abs"]) == "+30.0% (+£600k)"
+    assert any("(+£400k)" in r for r in A.priority(s)["reasons"])
+
+
+def test_small_base_growth_is_labelled_and_not_rewarded():
+    s = A.summarise(hist(40e3, 45e3, 90e3), BENCH, today=TODAY)  # +100% YoY, but only +£45k
+    assert s["hot"] and s["small_base"] and s["small_base_growth"]  # brief's hot rule still applies
+    p = A.priority(s)
+    assert p["level"] == A.LOW and any("High percentage growth from a small base" in r for r in p["reasons"])
+    # same growth on a larger charity is rewarded
+    big = A.summarise(hist(4e6, 4.5e6, 9e6), {"£1m–£5m": BENCH["£1m–£5m"]}, today=TODAY)
+    assert not big["small_base"] and A.priority(big)["level"] == A.HIGH
+    # threshold is configurable
+    assert not A.summarise(hist(40e3, 45e3, 90e3), BENCH, today=TODAY, small=20e3)["small_base"]
+
+
+def test_vectorised_small_base_matches_single():
+    cases = {1: hist(40e3, 45e3, 90e3), 2: hist(2e6, 2.2e6, 2.6e6), 3: hist(150e3, 90e3, 140e3)}
+    rows = [{"org_number": k, **r} for k, h in cases.items() for r in h]
+    for small in (A.SMALL_CHARITY, 50e3):
+        t = A.apply_trends(A.base_table(pd.DataFrame(rows), today=TODAY), BENCH, small=small).set_index("org_number")
+        for k, h in cases.items():
+            s = A.summarise(h, BENCH, today=TODAY, small=small)
+            assert bool(t.loc[k, "small_base"]) == s["small_base"], (k, small)
+            assert bool(t.loc[k, "small_base_growth"]) == s["small_base_growth"], (k, small)
+            assert t.loc[k, "priority"] == A.priority(s)["level"], (k, small)
+            assert t.loc[k, "income_change_abs"] == pytest.approx(s["income_change_abs"]), k

@@ -1,17 +1,17 @@
 # Charity Growth Finder (mhance · SilverTree Pioneers Track A)
 
-**What it does:** type a UK charity's name or registration number and see its last 3 years of income and expenditure, whether each is **▲ Up, ► Flat or ▼ Down**, how that compares with similar-sized charities, its trustees, and a clear **priority** for sales. Save it as a prospect and get an evidence-based **outreach plan**: the hook, a first email with your Calendly link, an estimated best time to approach, and a 4-step follow-up sequence you can copy, open in your email app or download.
+**What it does:** type a UK charity's name or registration number and, on one screen, see its **total income** and **total expenditure** for the last 3 years, whether each is **▲ Up, ► Flat or ▼ Down**, its **net surplus or deficit**, its trustees, and why it may or may not be worth contacting. Add it to your prospects and get an evidence-based **outreach plan**: the hook, a first email with your Calendly link, an estimated best time to approach, and a 4-step follow-up sequence you can copy, open in your email app or download.
 
 **The problem it solves:** mhance's sales team checks charities one at a time on the Charity Commission website to work out who is growing. That's slow, inconsistent and disconnected from the outreach that follows. This tool turns it into one workflow:
 
 > ① Search → ② understand the financial direction and priority → ③ save as a prospect → ④ get the outreach plan → ⑤ copy / export
 
-| Tab | What a salesperson does there | Data |
+| Page | What a salesperson does there | Data |
 |---|---|---|
-| 🔎 **Find a charity** | Search by name (pick from a list of matches, largest first) or registration number. See income and expenditure for the last 3 returns with up/flat/down and the peer comparison, a 5-year chart, priority and why, trustees (chair first), sectors, areas, contact details, links to the Charity Commission and Companies House pages, CSV download, **⭐ Save as prospect**. | Live API |
-| 🎯 **Find new prospects** | Filter all ~172,000 registered charities by area (175 local authorities and regions), sector, income band, priority and trend. Sorted by priority, then size. Each charity has **View details** and **⭐ Save** buttons; save a whole page at once; 15 per page. Export to CSV. | Daily bulk extract |
-| 📋 **Check a list of charities** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
-| ⭐ **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
+| **Look up a charity** (main page) | Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and CSV sit below under *More detail*. | Live API |
+| **Find new prospects** | Filter all ~172,000 registered charities. **Charity size comes first and is always visible:** leave small charities in or out, set what counts as small (default under £100k), and an optional maximum. The page says how many charities each option leaves out. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
+| **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
+| **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
 
 ---
 
@@ -22,13 +22,13 @@ pip install -r requirements.txt
 streamlit run app.py              # opens http://localhost:8501
 ```
 
-**Configuration: one API key.** The Charity Commission API is free, but despite the brief it **does need a key**. Register at <https://api-portal.charitycommission.gov.uk>, subscribe to *Register of Charities API*, then put the key in a file called `api_key.txt` next to `app.py` and restart. `.streamlit/secrets.toml` (`CHARITY_API_KEY = "..."`) or a `CHARITY_API_KEY` environment variable also work, and are what you'd use when deployed. `api_key.txt` is git-ignored. Without a key, the prospect search still works and the other tabs explain what's needed.
+**Configuration: one API key.** The Charity Commission API is free, but despite the brief it **does need a key**. Register at <https://api-portal.charitycommission.gov.uk>, subscribe to *Register of Charities API*, then put the key in a file called `api_key.txt` next to `app.py` and restart. `.streamlit/secrets.toml` (`CHARITY_API_KEY = "..."`) or a `CHARITY_API_KEY` environment variable also work, and are what you'd use when deployed. `api_key.txt` is git-ignored. Without a key, the prospect search still works and the other pages explain what's needed.
 
 **Developer checks**
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 39 tests
+python -m pytest            # 43 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
@@ -40,7 +40,7 @@ python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2G
 ## Architecture and data flow
 
 ```
-                    ┌──────────────── app.py (Streamlit UI: 4 tabs) ────────────────┐
+                    ┌──────────────── app.py (Streamlit UI: 4 pages) ───────────────┐
  search / lookup /  │                                                                │
  list / outreach ──►│ data_sources.LiveAPI ──► Charity Commission Register API       │
                     │   (requests-cache, 24h, SQLite)   search, details, financial   │
@@ -92,6 +92,17 @@ All thresholds are constants at the top of `analysis.py`.
 4. **When no trend is shown (labelled, never guessed):** **◌ Under 3 yrs data** (fewer than 3 returns); **◌ Base under £10k** (% change off a tiny base is meaningless); **⚠ Check data** (income or expenditure changed more than 50× between two returns, almost always a filing error).
 5. **Missing years:** if two consecutive returns are more than 15 months apart, the page warns that a reporting year is missing. Nothing is filled in.
 6. **YoY** for each row is against the previous return on record, even if that return is outside the 3-year window.
+7. **Money terms.** Charities don't report "revenue". **Total income** is the charity equivalent, and the app calls it that. **Net surplus / deficit = total income − total expenditure** for the same year. Income and expenditure are never added together. A missing figure stays missing (–); nothing is estimated.
+8. **Every % comes with its £.** e.g. "+31.6% (+£21.7m) over 3 years", so a big percentage on a small number is obvious at a glance. Charts switch between £, £k and £m so small charities aren't drawn as a row of 0.0s, and bars start at zero.
+
+### Small charities
+
+Very small charities produce huge percentage swings: +383% for a community association whose income went from £20k to £98k. To stop these crowding out real prospects:
+
+- **Small charity = income under £100k** by default, set on *Find new prospects* and used everywhere.
+- Growth measured from income under that line is labelled **"High percentage growth from a small base"**. It is shown, but it **doesn't raise priority**: a charity can't become Medium or High on percentage growth alone if it started small. The brief's 🔥 hot rule (+10% on the year before) still applies to everyone, but small-base cases are worded as "above the hot-prospect line, but from a small base".
+- *Find new prospects* leaves small charities out by default, using a visible switch. It always states how many charities each option hides (e.g. "Not shown: 119,286 small charities (income under £100k) · 8,860 with no accounts on record · 834 with overdue accounts"). Nothing is hidden silently.
+- Sorting by % growth with small charities included shows a warning. A **£ growth** sort is offered as the fairer alternative.
 
 **Real example:** Sickle Cell Care Manchester (1162402) shows income £137k → £86k → **£88.9m**. The live API returns exactly that, so it's an error in the Commission's own record (almost certainly £88,933 typed as £88.9m). Without the guard it topped the prospect list as a "+102,902%" hot prospect; now it's 🔴 *Check first*.
 
@@ -103,9 +114,9 @@ No opaque score. The first rule that matches wins, and the page lists the reason
 |---|---|
 | 🔴 Check first | Figures look like a filing error (⚠ Check data) |
 | ⚪ Low | Not enough history, tiny base, or latest accounts more than 22 months old (stale) |
-| 🟢 High | 🔥 **Hot** (income up more than 10% on the previous year, the brief's rule) **and** income growing faster than peers |
-| 🟡 Medium | Hot **or** growing faster than peers |
-| ⚪ Low | Neither |
+| 🟢 High | 🔥 **Hot** (income up more than 10% on the previous year, the brief's rule) **and** income growing faster than peers, neither from a small base |
+| 🟡 Medium | Hot **or** growing faster than peers, not from a small base |
+| ⚪ Low | Neither, or growth only from a small base |
 
 The reasons also state whether latest income falls in the £1m–£100m range assumed to suit Dynamics 365 (an assumption, shown as such; it doesn't change the level). A ⚡ **Spike** (income more than doubled) is flagged so a human checks whether it's a one-off.
 
@@ -122,11 +133,15 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 
 ## Usability decisions (tested as a first-time salesperson)
 
-- **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **⭐ Save** and **Open plan** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
+- **One screen answers the brief.** The main page is the charity look-up. Name, number, total income and expenditure for 3 years with labelled trends, surplus / deficit, the reason to contact (or not), trustees and **Add to prospects** are all on the page, with no tabs, pop-ups or sections to expand. Typing a number or name and pressing Enter is enough: **0 clicks**. Detail lives below under *More detail*, and other features are separate, clearly named pages.
+- **Name search no longer needs a pop-up.** The largest match is shown straight away (usually the one people mean), with a "Not the right one? Pick another" list above it.
+- **Settings survive page switches** (search box, filters, small-charity threshold), so moving between pages never loses your place.
+
+- **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open plan** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
 - **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
-- **Plain language.** "Find a charity", "Save as prospect", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
+- **Plain language.** "Look up a charity", "Add to prospects", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
 - **Facts vs estimates vs drafts are marked.** 📊 = from the charity's accounts, 🕒 = our estimate, ✍️ = a draft to edit.
-- **First screen says what to do.** A one-line 4-step guide plus example searches (Nacro, Oxfam, Cancer Research UK) for an empty search box.
+- **First screen says what to do.** A search box, example searches (Nacro, Oxfam, Cancer Research UK) and one sentence saying what you'll get.
 - **Light theme by default** (`.streamlit/config.toml`), whatever the viewer's system setting.
 
 ## Key decisions and alternatives considered
@@ -170,7 +185,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 ## Files
 
 ```
-app.py               Streamlit UI (4 tabs)
+app.py               Streamlit UI (4 pages)
 analysis.py          Financial rules: ordering, % change, status, up/flat/down, vs peers, hot, gaps, priority
 outreach.py          Hooks, evidence, recipient, estimated timing, sequence, plan export
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence

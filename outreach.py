@@ -88,6 +88,7 @@ POST_NOMINALS = {
     "llb",
 }
 SMALL_WORDS = {"of", "and", "the", "for", "in", "on", "at", "to", "a", "an", "&"}
+KEEP_UPPER = {"UK", "NHS", "YMCA", "YWCA", "RSPCA", "NSPCC", "RNLI", "CIO", "UCL", "LGBT", "HIV", "MS"}  # 'CANCER RESEARCH UK' -> 'Cancer Research UK'
 
 
 # ---------- names ----------
@@ -102,6 +103,9 @@ def nice_name(name: str) -> str:
     out = []
     for i, w in enumerate(words):
         lw = w.lower()
+        if w.strip("().,") in KEEP_UPPER:
+            out.append(w)
+            continue
         if i and lw in SMALL_WORDS:
             out.append(lw)
             continue

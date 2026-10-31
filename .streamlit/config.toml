@@ -1,0 +1,4 @@
+[theme]
+# Light by default, whatever the viewer's system setting. Users can still switch in the ⋮ menu.
+base = "light"
+primaryColor = "#1F5FBF"

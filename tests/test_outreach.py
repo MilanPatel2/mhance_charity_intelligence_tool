@@ -37,6 +37,8 @@ def nacro_like():
 def test_names():
     assert O.nice_name("THE JIGSAW TRUST") == "The Jigsaw Trust"
     assert O.nice_name("NACRO") == "NACRO"
+    assert O.nice_name("MAKE-A-WISH FOUNDATION UK") == "Make-A-Wish Foundation UK"
+    assert O.nice_name("ST JOHN'S (NORTH-EAST) TRUST") == "St John's (North-East) Trust"
     assert O.nice_name("THE CHURCH OF JESUS CHRIST (GREAT BRITAIN)") == "The Church of Jesus Christ (Great Britain)"
     assert O.nice_name("THE SOCIETY OF ST COLUMBAN FOR FOREIGN MISSIONS") == "The Society of St Columban for Foreign Missions"
     assert O.person("NICHOLAS LIONEL HARDWICK")["salutation"] == "Dear Nicholas"

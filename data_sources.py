@@ -175,6 +175,53 @@ def rank_search_hits(hits: list[dict], query: str, incomes: dict | None = None) 
     return sorted(hits, key=key)
 
 
+def name_index(charities: pd.DataFrame) -> pd.DataFrame:
+    """Charity names prepared for type-ahead: the same normalising as _norm, plus a no-spaces version
+    so 'make a wish', 'make-a-wish' and 'makeawish' all match 'MAKE-A-WISH FOUNDATION UK'."""
+    norm = charities["name"].fillna("").str.lower().str.replace(r"[^a-z0-9 ]+", " ", regex=True).str.split().str.join(" ")
+    norm = norm.str.replace(r"^the (?=.)", "", regex=True)
+    return pd.DataFrame(
+        {
+            "reg_number": charities["reg_number"].astype(int),
+            "name": charities["name"],
+            "income": charities["latest_income"],
+            "norm": norm,
+            "squashed": norm.str.replace(" ", "", regex=False),
+            "reg_text": charities["reg_number"].astype(int).astype(str),
+        }
+    )
+
+
+def suggest(index: pd.DataFrame, query: str, limit: int = 8) -> list[dict]:
+    """Up to `limit` charities for what's typed so far, best first: exact name, then names starting with it,
+    then a word starting with it, then containing it anywhere. Ties go to the larger charity.
+    Digits match registration numbers from the start. Returns [{reg, name, income}]."""
+    raw = (query or "").strip()
+    if raw.isdigit():
+        hits = index[index["reg_text"].str.startswith(raw)].assign(tier=lambda d: (d["reg_text"] != raw).astype(int))
+    else:
+        q = _norm(raw)
+        qs = q.replace(" ", "")
+        if len(qs) < 2:
+            return []
+        hits = index[
+            index["norm"].str.contains(q, regex=False) | index["squashed"].str.startswith(qs)
+        ]  # no-spaces form: start only, or "oxfam" matches "cOX FAMily"
+        n, s = hits["norm"], hits["squashed"]
+        tier = 3 - (n.str.startswith(q) | s.str.startswith(qs)).astype(int) * 2 - (" " + n).str.contains(" " + q, regex=False).astype(int) * 1
+        hits = hits.assign(tier=tier.where(~((n == q) | (s == qs)), 0).clip(lower=0))
+    hits = hits.assign(_inc=-hits["income"].fillna(0)).sort_values(["tier", "_inc", "norm"] if "norm" in hits else ["tier", "_inc"]).head(limit)
+    return [{"reg": int(r.reg_number), "name": r.name, "income": None if pd.isna(r.income) else float(r.income)} for r in hits.itertuples()]
+
+
+def search_variants(query: str) -> list[str]:
+    """Other spellings to try on the live register, which needs punctuation to match ('make a wish' finds nothing,
+    'make-a-wish' does)."""
+    q = " ".join((query or "").split())
+    out = [q, re.sub(r"\s+", "-", q), re.sub(r"[^\w\s]", " ", q).strip()]
+    return [v for i, v in enumerate(out) if v and v not in out[:i]]
+
+
 def _as_list(x) -> list[dict]:
     """API endpoints return a list, a single object or nothing; always give back a list of dicts."""
     if isinstance(x, dict):

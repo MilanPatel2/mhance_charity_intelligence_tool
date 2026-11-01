@@ -122,8 +122,8 @@ def nice_name(name: str) -> str:
         if i and lw in SMALL_WORDS:
             out.append(lw)
             continue
-        j = next((k for k, ch in enumerate(lw) if ch.isalpha()), 0)  # '(GREAT' -> '(Great'
-        out.append(lw[:j] + lw[j : j + 1].upper() + lw[j + 1 :])
+        cap = lambda s: s[: (j := next((k for k, ch in enumerate(s) if ch.isalpha()), 0))] + s[j : j + 1].upper() + s[j + 1 :]  # '(GREAT' -> '(Great'
+        out.append("-".join(cap(part) for part in lw.split("-")))  # 'MAKE-A-WISH' -> 'Make-A-Wish'
     return " ".join(out)
 
 

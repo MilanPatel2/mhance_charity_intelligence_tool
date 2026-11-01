@@ -645,6 +645,14 @@ def page_lookup() -> None:
 # ---------- page 2: find new prospects (many charities at once) ----------
 MIN_OPTIONS = [0, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000]
 MAX_OPTIONS = [None, 1_000_000, 5_000_000, 10_000_000, 25_000_000, 100_000_000]
+SORTS = {  # label: (columns, ascending)
+    "Highest priority first": (["_rank", "latest_income"], False),
+    "Largest income first": (["latest_income"], False),
+    "Biggest £ income growth over 3 years": (["income_change_abs"], False),
+    "Fastest % income growth over 3 years": (["income_change"], False),
+    "Biggest £ income fall over 3 years": (["income_change_abs"], True),
+    "Name (A–Z)": (["name"], True),
+}
 
 
 def page_prospects() -> None:
@@ -670,14 +678,7 @@ def page_prospects() -> None:
     prio_f = f3.multiselect(
         "Priority", [A.HIGH, A.MEDIUM, A.LOW, A.CHECK_FIRST], format_func=A.PRIORITY_LABELS.get, placeholder="Any", key="prio_f", persist_state="session"
     )
-    g1, g2 = st.columns(2)
-    sort_by = g1.selectbox(
-        "Sort by",
-        ["Highest priority first", "Largest income first", "Biggest £ income growth over 3 years", "Fastest % income growth over 3 years"],
-        key="sort_by",
-        persist_state="session",
-    )
-    name_f = g2.text_input("Name contains", placeholder="optional", key="name_f", persist_state="session")
+    name_f = st.text_input("Name contains", placeholder="optional", key="name_f", persist_state="session")
     with st.expander("More filters"):
         h1, h2 = st.columns(2)
         trend_f = h1.selectbox(
@@ -736,13 +737,6 @@ def page_prospects() -> None:
 
     rank = {A.HIGH: 3, A.MEDIUM: 2, A.LOW: 1, A.CHECK_FIRST: 0}
     res = df[m].assign(_rank=df["priority"].map(rank).fillna(0), _hot=df["hot"].fillna(False).astype(bool) & ~df["small_base"].fillna(False).astype(bool))
-    sort_cols = {
-        "Highest priority first": ["_rank", "latest_income"],
-        "Largest income first": ["latest_income"],
-        "Biggest £ income growth over 3 years": ["income_change_abs"],
-        "Fastest % income growth over 3 years": ["income_change"],
-    }[sort_by]
-    res = res.sort_values(sort_cols, ascending=False, na_position="last")
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Charities found", f"{len(res):,}")
@@ -760,6 +754,15 @@ def page_prospects() -> None:
         st.caption("**Not shown:** " + " · ".join(f"{n:,} {w}" for n, w in hidden) + ". Change the matching option to include them.")
     else:
         st.caption("Nothing is being left out by the income or 'leave out' options.")
+    # Results, with the sort right above them so it's clearly about the list, not another filter.
+    st.markdown("")
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        st.markdown(f"#### Results · {len(res):,}")
+        sort_by = st.selectbox("Sort results by", list(SORTS), key="sort_by", persist_state="session", width=340)
+    cols, asc = SORTS[sort_by]
+    # Names sort the way people read them: ignore leading punctuation and "The".
+    alpha = lambda s: s.str.lower().str.replace(r"^(?:[^a-z0-9]|the\b)+", "", regex=True) if s.name == "name" else s
+    res = res.sort_values(cols, ascending=asc, na_position="last", key=alpha)
     if sort_by.startswith("Fastest %") and not exclude_small:
         st.warning(
             "Sorting by % growth with small charities included puts tiny charities first. Their % changes come from a small base.", icon=":material/warning:"

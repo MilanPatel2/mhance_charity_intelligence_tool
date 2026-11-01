@@ -15,7 +15,7 @@ import streamlit as st
 
 import analysis as A
 import outreach as O
-from data_sources import APIError, LiveAPI, NotFound, Snapshot, name_index, rank_search_hits, search_variants, suggest
+from data_sources import APIError, LiveAPI, NotFound, Snapshot, rank_search_hits, search_variants
 from prospects import OUTCOMES, ProspectStore, add_recent
 
 st.set_page_config(page_title="Charity Growth Finder · mhance", page_icon=":material/trending_up:", layout="wide")
@@ -524,40 +524,29 @@ def explore_cards(version: str = "") -> list[dict]:
     ]
 
 
+DROPDOWN_MIN_INCOME = 1_000_000  # the dropdown lists charities this size and up; anything else is found by pressing Enter
+
+
 @st.cache_data(show_spinner=False, max_entries=1)
-def search_index(version: str = "") -> pd.DataFrame:
-    return name_index(get_snapshot(version).charities)
+def dropdown_options(version: str = "") -> tuple[list[int], dict[int, str]]:
+    """Registration numbers (largest first) and their labels for the search dropdown."""
+    c = get_snapshot(version).charities
+    c = c[c["latest_income"].fillna(0) >= DROPDOWN_MIN_INCOME].sort_values("latest_income", ascending=False).drop_duplicates("reg_number")
+    regs = [int(r) for r in c["reg_number"]]
+    return regs, {int(r): f"{O.nice_name(n)} · #{int(r)}" for r, n in zip(c["reg_number"], c["name"], strict=True)}
 
 
-def _open_charity(reg: int, name: str) -> None:
-    """Open a charity from a suggestion or card: the search box shows its name, and the page shows it."""
-    label = O.nice_name(name)
-    st.session_state["q"] = label
-    st.session_state["open"] = {"reg": int(reg), "q": label}
+def _open_charity(reg: int, name: str = "") -> None:
+    """Open a charity from a card: put it in the search box (as a dropdown choice, or as its number)."""
+    regs, _ = dropdown_options(DATA_VERSION)
+    st.session_state["q_pick"] = int(reg) if int(reg) in set(regs) else str(int(reg))
 
 
-def _search_live(q: str) -> None:
-    st.session_state["live_q"] = q
-
-
-def suggestion_rows(items: list[dict], key: str) -> None:
-    """Type-ahead results: one clickable row per charity."""
-    for it in items:
-        bits = [f"#{it['reg']}"] + ([f"Income {A.money(it['income'])}"] if it.get("income") else [])
-        st.button(
-            f"**{O.nice_name(it['name'])}** · {' · '.join(bits)}",
-            key=f"{key}_{it['reg']}",
-            on_click=_open_charity,
-            args=(it["reg"], it["name"]),
-            width="stretch",
-        )
-
-
-def live_search(q: str, already_shown: set[int] | None = None) -> None:
-    """Search the live register, for charities newer than the saved list. Tries other spellings because the
-    register needs punctuation to match ('make a wish' finds nothing, 'make-a-wish' does)."""
+def api_search(q: str) -> None:
+    """Search the live register for typed text. It only matches names spelled exactly, punctuation included
+    ('make a wish' finds nothing, 'make-a-wish' does), so other spellings are tried too."""
     try:
-        with st.spinner("Searching the live Charity Commission register…"):
+        with st.spinner("Searching the Charity Commission register…"):
             hits = []
             for v in search_variants(q):
                 hits = API.search(v)
@@ -565,17 +554,23 @@ def live_search(q: str, already_shown: set[int] | None = None) -> None:
                     break
             inc = API.latest_incomes([h["reg_number"] for h in hits[:60]]) if hits else {}
     except APIError as e:
-        st.error(f"{e} Try again in a moment.")
+        st.error(f"{e} Press Enter in the search box to try again.")
         return
     if not hits:
         st.warning(f"No registered charities match “{q}”. Try fewer words (e.g. *cancer research*) or the registration number.")
         return
-    hits = [h for h in rank_search_hits(hits, q, inc) if h["reg_number"] not in (already_shown or set())]
-    if not hits:
-        st.caption("The live register has nothing beyond the suggestions above.")
-        return
-    st.caption(f"{len(hits)} more match{'es' if len(hits) != 1 else ''} on the live register" + (", best 8 shown." if len(hits) > 8 else "."))
-    suggestion_rows([{"reg": h["reg_number"], "name": h["name"], "income": inc.get(h["reg_number"])} for h in hits[:8]], "live")
+    hits = rank_search_hits(hits, q, inc)
+    reg = hits[0]["reg_number"]
+    if len(hits) > 1:
+        # Show the best match straight away; the others are one click away.
+        names = {h["reg_number"]: f"{O.nice_name(h['name'])} · #{h['reg_number']} · income {A.money(inc.get(h['reg_number']))}" for h in hits}
+        reg = st.selectbox(
+            f"{len(hits)} charities match “{q}”. Showing the best match. Not the right one? Pick another:",
+            list(names),
+            format_func=names.get,
+            key=f"pick_{q.lower()}",
+        )
+    show_lookup(int(reg), "l_", remember=True)
 
 
 def _remember(rec: dict) -> None:
@@ -621,36 +616,30 @@ def page_lookup() -> None:
     st.markdown("### Look up a charity")
     if not need_api():
         return
-    q = st.text_input(
+    regs, labels = dropdown_options(DATA_VERSION)
+    choice = st.selectbox(
         "Search by charity name or registration number.",
+        regs,
+        index=None,
+        format_func=lambda r: labels.get(r, str(r)),
+        key="q_pick",
+        accept_new_options=True,  # type anything and press Enter to search the live register
         placeholder="Search charities…",
-        key="q",
         persist_state="session",
-        icon=":material/search:",
-        live="300ms",  # suggestions update as you type
-    ).strip()
-    if not q:
-        st.session_state.pop("open", None)
+    )
+    if choice is None:
         opening_state()
         return
-    opened = st.session_state.get("open")
-    if opened and opened["q"] == q:
-        show_lookup(opened["reg"], "l_", remember=True)
+    if isinstance(choice, int):  # picked from the dropdown
+        show_lookup(choice, "l_", remember=True)
         return
-    idx = search_index(DATA_VERSION)
-    if q.isdigit() and ((idx["reg_text"] == q).any() or len(q) >= 7):
-        # A full registration number opens straight away (7 digits may be newer than the saved list).
+    q = str(choice).strip()
+    if q.isdigit():
         show_lookup(int(q), "l_", remember=True)
-        return
-    matches = suggest(idx, q)
-    if matches:
-        suggestion_rows(matches, "sugg")
-        if not q.isdigit():
-            st.button(f"Not listed? Search the live register for “{q}”", type="tertiary", on_click=_search_live, args=(q,), icon=":material/travel_explore:")
-    elif q.isdigit():
-        st.caption("Keep typing the registration number.")
-    if (not matches and not q.isdigit() and len(q) >= 3) or st.session_state.get("live_q") == q:
-        live_search(q, {m["reg"] for m in matches})
+    elif q:
+        api_search(q)
+    else:
+        opening_state()
 
 
 # ---------- page 2: find new prospects (many charities at once) ----------

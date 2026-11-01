@@ -8,7 +8,7 @@
 
 | Page | What a salesperson does there | Data |
 |---|---|---|
-| **Look up a charity** (main page) | One search box for a full or partial name or a registration number. Below it are **Recent searches** (the last 5 charities opened in this browser session, newest first, as clickable cards), or **Explore charities** examples on a first visit. **Suggestions appear as you type** (no Enter needed), matched against the saved list of all registered charities with punctuation, hyphens and spaces ignored, so *make a wish* finds *Make-A-Wish Foundation UK*. Order: exact name, then names starting with the search, then a word starting with it, then containing it; ties go to the larger charity. Click a suggestion to open it. A full registration number opens straight away. If the saved list has no match (e.g. a charity registered this week), the live register is searched automatically, also trying hyphenated spellings. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, key people, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
+| **Look up a charity** (main page) | One search box for a full or partial name or a registration number. Below it are **Recent searches** (the last 5 charities opened in this browser session, newest first, as clickable cards), or **Explore charities** examples on a first visit. The search box is a **dropdown**: as you type it suggests matching charities with £1m+ income (from the saved list; about 9,400 names, kept small so the page stays light). Pick one to open it. **Press Enter to search the live register** for anything you've typed, a name of any size or a registration number. The register only matches exact spelling, punctuation included, so the app also tries a hyphenated version: *make a wish* finds *Make-A-Wish Foundation UK*. Results are ranked exact name, then starts with, then contains (ties go to the larger charity); the best match opens straight away with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, key people, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
 | **Find new prospects** | Filter all ~172,000 registered charities. **Minimum income** is the first filter (default £100k or more; choose *Any* to include small charities). The page says how many charities each option leaves out. Maximum income is under *More filters*. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
 | **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
 | **My prospects** | An action queue, **Your next actions**: overdue first, then due today, then inside the estimated planning window, then later. Replied, stopped or paused prospects are folded into **No action needed**. The selected prospect shows a short brief (**Why this account · Why now · Who · Next**) with one main action and Done / Snooze / Not relevant buttons. The source line separates reported, calculated and estimated information. Drafts, later steps, scoring detail, notes, downloads and settings are one click away in collapsed sections. | Live API |
@@ -29,7 +29,7 @@ streamlit run app.py              # opens http://localhost:8501
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 66 tests
+python -m pytest            # 63 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
@@ -143,8 +143,8 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 
 ## Usability decisions (tested as a first-time salesperson)
 
-- **One screen answers the brief.** The main page is the charity look-up. Name, number, total income and expenditure for 3 years with labelled trends, surplus / deficit, the reason to contact (or not), trustees and **Add to prospects** are all on the page, with no tabs, pop-ups or sections to expand. A registration number opens with **0 clicks**; a name takes **1 click** on a suggestion that appears as you type. Detail lives below under *More detail*, and other features are separate, clearly named pages.
-- **Type-ahead instead of exact-match search.** The live register only matches names spelled exactly, punctuation included (*make a wish* found nothing). Suggestions now come from the saved list as you type, with punctuation ignored, and the live register is the fallback.
+- **One screen answers the brief.** The main page is the charity look-up. Name, number, total income and expenditure for 3 years with labelled trends, surplus / deficit, the reason to contact (or not), trustees and **Add to prospects** are all on the page, with no tabs, pop-ups or sections to expand. Typing a name or number and pressing Enter is enough: **0 clicks** (or pick from the dropdown). Detail lives below under *More detail*, and other features are separate, clearly named pages.
+- **Dropdown plus live search.** The search box suggests £1m+ charities as you type (Streamlit's built-in dropdown; its matching is simple, so punctuation must roughly match). Pressing Enter always searches the live register, retrying with hyphens because the register needs exact punctuation (*make a wish* found nothing before). A fuller type-ahead over all 172,000 names was tried and dropped in favour of this simpler, native control.
 - **Settings survive page switches** (search box, filters, small-charity threshold), so moving between pages never loses your place.
 
 - **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
@@ -201,7 +201,7 @@ outreach.py          Hooks, evidence, recipient, estimated timing, scheduling, a
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence
 data_sources.py      Charity Commission API client (cached, normalised) + bulk Snapshot
 build_dataset.py     Bulk extract -> data/*.parquet
-tests/               66 pytest tests
+tests/               63 pytest tests
 WALKTHROUGH.md       10–15 minute demo outline
 pyproject.toml       ruff + pytest config
 ```

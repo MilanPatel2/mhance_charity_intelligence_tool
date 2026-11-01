@@ -6,7 +6,7 @@ Before recording: run `streamlit run app.py`, open **My prospects** and fill in 
 mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks charities one by one on the Charity Commission site to work out who is growing, then writes outreach from scratch. That's slow, inconsistent, and the research and the outreach are disconnected. This tool makes it one flow: **search → understand → save → outreach plan → copy/export.**
 
 ## 2. A real search, start to finish (2 min)
-- **Look up a charity** (the main page) → start typing `make a wish`: suggestions appear as you type, punctuation doesn't matter → click *Make-A-Wish Foundation UK* and the summary appears. A full registration number (e.g. `226171`) opens straight away. Clear the search box to show it under *Recent searches*.
+- **Look up a charity** (the main page) → start typing `cancer res`: the dropdown suggests matching charities. Then type `make a wish` and press Enter: the live register is searched (with a hyphenated retry) and *Make-A-Wish Foundation UK* opens. A registration number (e.g. `226171`) + Enter works too. Clear the search box to show it under *Recent searches*.
 - Point out that everything the brief asks for is on one screen: name and number, total income and expenditure for 3 years with labelled trends, net surplus / deficit, why it's worth contacting, trustees, and **Add to prospects**. Then scroll to *More detail* for the chart, peer comparison and the Charity Commission / Companies House links.
 - Then type a number, `202918` (Oxfam), to show search by registration number.
 
@@ -32,7 +32,7 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 - Streamlit for speed and a real UI for non-technical users.
 - Live API for named charities, the free daily bulk extract only for register-wide filtering and peer benchmarks; no silent fallback.
 - Rules, not an LLM, for outreach: every sentence traces to data, it's deterministic, and it's tested.
-- Clean split: `data_sources` (API + normalisation), `analysis` (financial rules), `outreach` (plan), `prospects` (storage), `app` (UI only). 66 tests; ruff lint and format.
+- Clean split: `data_sources` (API + normalisation), `analysis` (financial rules), `outreach` (plan), `prospects` (storage), `app` (UI only). 63 tests; ruff lint and format.
 
 ## 7. Trade-offs and rejected approaches (1 min)
 - Absolute-only trends (inflation makes everything "Up") vs peers-only (drops the brief's indicator): kept both.

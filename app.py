@@ -214,19 +214,29 @@ NO_TREND = {
 
 
 def money_card(s: dict, field: str, title: str, help_text: str) -> None:
-    """One headline figure: latest year, the 3-year change in % and £, and a clearly labelled trend."""
+    """The brief's layout: the last 3 years of figures, the % change across them underneath, then the trend.
+    Every number says which period it covers, so a 3-year change is never shown under a single year's figure."""
     years = s["years"]
-    latest = years[-1] if years else {}
+    n = len(years)
     change, change_abs = s.get(f"{field}_change"), s.get(f"{field}_change_abs")
     with st.container(border=True):
-        st.metric(
-            f"{title}, latest year",
-            A.money(latest.get(field)),
-            A.pct_abs(change, change_abs) if change is not None else None,
-            delta_color="normal" if field == "income" and s.get("income_direction") in (A.UP, A.DOWN) else "off",
-            delta_description=f"over {len(years)} years" if change is not None else None,
-            help=help_text,
-        )
+        st.markdown(f"**{title}, last {n} year{'s' if n != 1 else ''}**" if n else f"**{title}**", help=help_text)
+        if years:
+            head = " | ".join(year_label(y["period_end"]) for y in years)
+            vals = " | ".join(f"**{A.money(y.get(field))}**" if i == n - 1 else A.money(y.get(field)) for i, y in enumerate(years))
+            st.markdown(f"| {head} |\n|{'---|' * n}\n| {vals} |")
+        else:
+            st.caption("No accounts on record.")
+        if change is not None and not pd.isna(change) and n >= 2:
+            up = change >= 0
+            moved = field == "income" and s.get("income_direction") in (A.UP, A.DOWN)
+            st.badge(
+                f"{A.pct_abs(change, change_abs)} from {year_label(years[0]['period_end'])} to {year_label(years[-1]['period_end'])}",
+                icon=":material/arrow_upward:" if up else ":material/arrow_downward:",
+                color=("green" if up else "red") if moved else "gray",
+            )
+        elif 0 < n < 3:
+            st.caption(f"Only {n} year{'s' if n != 1 else ''} of accounts on record, so no 3-year change.")
         d = s.get(f"{field}_direction")
         name = "Income" if field == "income" else "Expenditure"
         if d:

@@ -439,14 +439,18 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
                 "priority": pr["level"],
                 "hot_prospect": s["hot"],
                 "small_base": s["small_base"],
+                "income_govt_contracts": y.get("govt_contracts"),
+                "income_govt_grants": y.get("govt_grants"),
+                "income_donations_legacies": y.get("donations"),
+                "income_trading": y.get("trading"),
                 "trustees": "; ".join(t["name"] for t in tr),
                 "website": rec["profile"].get("Website"),
             }
-            for y in years
+            for y in s["all_years"]
         ]
     )
     st.download_button(
-        "Download these figures (CSV)",
+        f"Download all {len(s['all_years'])} years on record (CSV)",
         export.to_csv(index=False),
         f"charity_{reg}.csv",
         "text/csv",
@@ -492,11 +496,11 @@ def result_list(rows: list[dict], key: str, page_size: int = 15, allow_save: boo
                 save_button(c3, int(r["reg"]), r["name"], f"{key}_save_{r['reg']}", label="Add")
     if pages > 1:
         p1, p2, p3 = st.columns([1, 2, 1], vertical_alignment="center")
-        if p1.button("◀ Previous", key=f"{key}_prev", disabled=page <= 1, width="stretch"):
+        if p1.button("Previous", icon=":material/chevron_left:", key=f"{key}_prev", disabled=page <= 1, width="stretch"):
             st.session_state[f"{key}_page"] = page - 1
             st.rerun()
         p2.markdown(f"<div style='text-align:center'>Page {page} of {pages} · {len(rows):,} charities</div>", unsafe_allow_html=True)
-        if p3.button("Next ▶", key=f"{key}_next", disabled=page >= pages, width="stretch"):
+        if p3.button("Next", icon=":material/chevron_right:", key=f"{key}_next", disabled=page >= pages, width="stretch"):
             st.session_state[f"{key}_page"] = page + 1
             st.rerun()
     return shown
@@ -514,8 +518,63 @@ def save_all_button(rows: list[dict], key: str, what: str = "on this page") -> N
     )
 
 
-def _set_query(text: str) -> None:
-    st.session_state["q"] = text
+TOP_N = 25
+
+
+@st.cache_data(show_spinner=False)
+def top_charities(n: int, band: float) -> pd.DataFrame:
+    """The n largest charities by latest total income, with their latest figures and 3-year income trend."""
+    snap = get_snapshot()
+    c = snap.charities.dropna(subset=["latest_income"]).sort_values("latest_income", ascending=False).drop_duplicates("reg_number").head(n)
+    fin = snap.financials[snap.financials["org_number"].isin(c["org_number"])]
+    rows = []
+    for r in c.itertuples():
+        hist = [
+            {k: (None if pd.isna(v) else v) for k, v in h.items()}
+            for h in fin[fin["org_number"] == r.org_number].assign(period_end=lambda d: d["period_end"].astype(str).str[:10]).to_dict("records")
+        ]
+        s = A.summarise(hist, band=band)
+        latest = s["years"][-1] if s["years"] else {}
+        d = s["income_direction"]
+        rows.append(
+            {
+                "reg": int(r.reg_number),
+                "Charity": O.nice_name(r.name),
+                "Number": str(int(r.reg_number)),
+                "Year ending": year_label(latest["period_end"]) if latest else "–",
+                "Total income": latest.get("income", r.latest_income) / 1e6,
+                "Total expenditure": (latest.get("expenditure") or float("nan")) / 1e6,
+                "Net surplus / deficit": A.net_label(latest.get("net")),
+                "Income trend (3 years)": f"{d} {A.pct(s['income_change'])}" if d else A.LABELS.get(s["status"], "–"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _open_top(regs: list[int]) -> None:
+    rows = st.session_state["top_pick"].selection.rows
+    if rows:
+        st.session_state["q"] = str(regs[rows[0]])
+
+
+def largest_charities() -> None:
+    df = top_charities(TOP_N, band)
+    st.markdown(f"#### The {TOP_N} largest charities")
+    st.caption("By total income in their latest accounts. Select a row to see the full summary, or search above.")
+    st.dataframe(
+        df.drop(columns="reg"),
+        hide_index=True,
+        width="stretch",
+        height=35 * (len(df) + 1) + 3,
+        on_select=lambda: _open_top(df["reg"].tolist()),
+        selection_mode="single-row",
+        key="top_pick",
+        column_config={
+            "Total income": st.column_config.NumberColumn(format="£%.1fm"),
+            "Total expenditure": st.column_config.NumberColumn(format="£%.1fm"),
+        },
+        alt=f"The {TOP_N} largest registered charities by total income",
+    )
 
 
 # ---------- page 1: look up a charity (the main page) ----------
@@ -531,15 +590,7 @@ def page_lookup() -> None:
         icon=":material/search:",
     ).strip()
     if not q:
-        st.caption("Type a name or number and press Enter. Not sure where to start? Try one:")
-        with st.container(horizontal=True):
-            st.button("Nacro", on_click=_set_query, args=("nacro",))
-            st.button("Oxfam", on_click=_set_query, args=("202918",))
-            st.button("Cancer Research UK", on_click=_set_query, args=("1089464",))
-        st.caption(
-            "You'll see total income and expenditure for the last 3 years, whether each is going up, flat or down, "
-            "the surplus or deficit, the trustees, and whether the charity looks worth contacting."
-        )
+        largest_charities()
         return
     if q.isdigit():
         show_lookup(int(q), "l_")

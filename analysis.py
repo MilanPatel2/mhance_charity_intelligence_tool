@@ -206,9 +206,8 @@ def summarise(
     for r in rows:  # net surplus (+) / deficit (-): income minus expenditure, never estimated
         e = r.get("expenditure")
         r["net"] = r["income"] - e if e is not None and not pd.isna(e) else None
-    for i, r in enumerate(last):  # YoY for display, vs the return before (even if outside the window)
-        j = len(rows) - len(last) + i - 1
-        prev = rows[j] if j >= 0 else None
+    for i, r in enumerate(rows):  # YoY vs the return before, for every year on record (the CSV shows them all)
+        prev = rows[i - 1] if i > 0 else None
         for col in ("income", "expenditure"):
             p, c = (prev or {}).get(col), r.get(col)
             r[f"{col}_yoy"] = (c - p) / p if prev and p and p > 0 and c is not None else None

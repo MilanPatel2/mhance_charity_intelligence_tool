@@ -8,7 +8,7 @@
 
 | Page | What a salesperson does there | Data |
 |---|---|---|
-| **Look up a charity** (main page) | Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and CSV sit below under *More detail*. | Live API |
+| **Look up a charity** (main page) | Before searching, the page lists the 25 largest charities by total income (select a row to open one). Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
 | **Find new prospects** | Filter all ~172,000 registered charities. **Minimum income** is the first filter (default £100k or more; choose *Any* to include small charities). The page says how many charities each option leaves out. Maximum income is under *More filters*. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
 | **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
 | **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
@@ -142,7 +142,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
 - **Plain language.** "Look up a charity", "Add to prospects", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
 - **Facts vs estimates vs drafts are marked.** Headings say which is which: "(from the accounts)", "(estimate)", "Drafts for you to edit".
-- **First screen says what to do.** A search box, example searches (Nacro, Oxfam, Cancer Research UK) and one sentence saying what you'll get.
+- **First screen is never empty.** A search box, then the 25 largest charities with their latest income, expenditure, surplus/deficit and 3-year trend. Selecting a row opens it.
 - **Light theme by default** (`.streamlit/config.toml`), whatever the viewer's system setting.
 
 ## Key decisions and alternatives considered

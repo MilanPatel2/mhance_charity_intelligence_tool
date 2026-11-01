@@ -19,6 +19,8 @@ from data_sources import APIError, LiveAPI, NotFound, Snapshot, rank_search_hits
 from prospects import OUTCOMES, ProspectStore, add_recent
 
 st.set_page_config(page_title="Charity Growth Finder · mhance", page_icon=":material/trending_up:", layout="wide")
+# Spread the top navigation evenly across the page (Streamlit has no setting for this).
+st.html("<style>[data-testid='stToolbar'] .rc-overflow { flex: 1 1 auto; justify-content: space-evenly; }</style>")
 
 KEY_FILE = Path(__file__).parent / "api_key.txt"
 PLACEHOLDER = "paste-your-key-here"

@@ -1,6 +1,6 @@
 # Charity Growth Finder (mhance · SilverTree Pioneers Track A)
 
-**What it does:** type a UK charity's name or registration number and, on one screen, see its **total income** and **total expenditure** for the last 3 years, whether each is **▲ Up, ► Flat or ▼ Down**, its **net surplus or deficit**, its trustees, and why it may or may not be worth contacting. Add it to your prospects and get an evidence-based **outreach plan**: the hook, a first email with your Calendly link, an estimated best time to approach, and a 4-step follow-up sequence you can copy, open in your email app or download.
+**What it does:** type a UK charity's name or registration number and, on one screen, see its **total income** and **total expenditure** for the last 3 years, whether each is **▲ Up, ► Flat or ▼ Down**, its **net surplus or deficit**, its key people (chair, trustees and senior-staff counts), and why it may or may not be worth contacting. Add it to your prospects and get an evidence-based **outreach plan**: the hook, a first email with your Calendly link, an estimated best time to approach, and a 4-step follow-up sequence you can copy, open in your email app or download.
 
 **The problem it solves:** mhance's sales team checks charities one at a time on the Charity Commission website to work out who is growing. That's slow, inconsistent and disconnected from the outreach that follows. This tool turns it into one workflow:
 
@@ -29,7 +29,7 @@ streamlit run app.py              # opens http://localhost:8501
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 60 tests
+python -m pytest            # 62 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
@@ -47,7 +47,7 @@ python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2G
 ## Architecture and data flow
 
 ```
-                    ┌──────────────── app.py (Streamlit UI: 4 pages) ───────────────┐
+                    ┌──────────────── app.py (Streamlit UI: 5 pages) ───────────────┐
  search / lookup /  │                                                                │
  list / outreach ──►│ data_sources.LiveAPI ──► Charity Commission Register API       │
                     │   (requests-cache, 24h, SQLite)   search, details, financial   │
@@ -83,7 +83,7 @@ python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2G
 `https://api.charitycommission.gov.uk/register/api` with header `Ocp-Apim-Subscription-Key`. Endpoints used: `searchCharityName`, `charitydetailsmulti` (to sort search results by size), `allcharitydetailsV2` (profile, contact, sectors, areas), `charityfinancialhistory` (5 years of income/expenditure plus income by source), `charityoverview` (staff, volunteers, activities) and `charitytrusteeinformationv2` (trustees, chair, appointment dates).
 
 - **Caching:** 24h on disk. Accounts change at most yearly; repeat searches are instant. "Not found" responses are cached too.
-- **Failures:** bad key (401), rate limit (429), network errors and non-JSON bodies all become a plain-English message. Malformed rows (missing numbers, non-numeric income, unknown shapes) are skipped, never guessed. A bad key is detected once at start-up and shown in the sidebar.
+- **Failures:** bad key (401), rate limit (429), network errors and non-JSON bodies all become a plain-English message. Malformed rows (missing numbers, non-numeric income, unknown shapes) are skipped, never guessed. A bad key is detected once at start-up and explained on the page (and under Settings).
 - **No silent fallback:** named-charity lookups never quietly switch to older bulk data. If the API fails, the user is told.
 - **Why the bulk extract as well?** The API can't answer "education charities in Ealing with £1m–£5m income" or "what's normal growth for a £5m charity?". The free daily bulk extract can, so it's used for exactly those two jobs and shows its extract date.
 
@@ -94,7 +94,7 @@ python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2G
 All thresholds are constants at the top of `analysis.py`.
 
 1. **Window:** the charity's **last 3 annual returns**, sorted by financial year end. Financial years end on all sorts of dates, so "3 years" means 3 returns, not 3 calendar years.
-2. **Up / Flat / Down (the brief's indicator):** total % change from the oldest to the latest of those 3 returns. **More than +5% = Up, less than −5% = Down, otherwise Flat.** The same rule applies to income and expenditure. The ±5% band stops a 1% wobble being sold as growth. It's adjustable in the sidebar.
+2. **Up / Flat / Down (the brief's indicator):** total % change from the oldest to the latest of those 3 returns. **More than +5% = Up, less than −5% = Down, otherwise Flat.** The same rule applies to income and expenditure. The ±5% band stops a 1% wobble being sold as growth. It's adjustable under Settings.
 3. **vs peers (context):** the same change compared with the **median for charities of the same size**. Size is based on income at the *start* of the window, because using latest income would push growers into bigger bands. Bands: £10k–£100k, £100k–£500k, £500k–£1m, £1m–£5m, £5m–£10m, £10m–£25m, £25m–£100m, £100m+. Every band has at least 111 up-to-date peers. Within ±5% of the median = ► In line. *Why both?* The typical charity grew ~9% over 3 years, largely inflation, so about two-thirds of £1m+ charities read as "Up". Up/flat/down answers the brief; vs peers answers "is this one actually outperforming?".
 4. **When no trend is shown (labelled, never guessed):** **Under 3 yrs data** (fewer than 3 returns); **Base under £10k** (% change off a tiny base is meaningless); **⚠ Check data** (income or expenditure changed more than 50× between two returns, almost always a filing error).
 5. **Missing years:** if two consecutive returns are more than 15 months apart, the page warns that a reporting year is missing. Nothing is filled in.
@@ -171,7 +171,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Bulk extract vs API history:** for some charities the bulk annual-return file holds fewer years than the API's financial history (e.g. St Francis' Children's Society: 2 vs 5). The prospect list (bulk) can therefore say "Under 3 yrs data" where the live lookup shows a full trend. The live lookup is authoritative.
 - **Peer benchmarks** come from the bulk snapshot, which is up to a week old: it's refreshed weekly (see *Weekly data refresh*), not live.
 - **Saved prospects** live in one local JSON file: single user, not shared, and reset on hosts with temporary disks such as Streamlit Cloud. Edits to a draft last for the session; the plan regenerates from data.
-- **No staff contact data:** the register gives trustees and published contact details only.
+- **No staff names:** the register names trustees and gives published contact details, but never names staff. *Key people* therefore shows the chair and trustees (with start dates and the other charities each also sits on), plus a staff line from the annual return: employees, how many are paid over £60k and the highest pay band, and volunteers. The chief executive and finance director have to be found on the charity's website or LinkedIn.
 - **Budget timing** is a rule-of-thumb estimate, labelled as such.
 - **England & Wales only:** Scottish (OSCR) and Northern Irish charities aren't on this register.
 - The **£1m–£100m target range** for Dynamics 365 is an assumption, not mhance data.
@@ -201,7 +201,7 @@ outreach.py          Hooks, evidence, recipient, estimated timing, scheduling, a
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence
 data_sources.py      Charity Commission API client (cached, normalised) + bulk Snapshot
 build_dataset.py     Bulk extract -> data/*.parquet
-tests/               60 pytest tests
+tests/               62 pytest tests
 WALKTHROUGH.md       10–15 minute demo outline
 pyproject.toml       ruff + pytest config
 ```

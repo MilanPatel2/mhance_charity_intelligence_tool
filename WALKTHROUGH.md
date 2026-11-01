@@ -32,7 +32,7 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 - Streamlit for speed and a real UI for non-technical users.
 - Live API for named charities, the free daily bulk extract only for register-wide filtering and peer benchmarks; no silent fallback.
 - Rules, not an LLM, for outreach: every sentence traces to data, it's deterministic, and it's tested.
-- Clean split: `data_sources` (API + normalisation), `analysis` (financial rules), `outreach` (plan), `prospects` (storage), `app` (UI only). 43 tests; ruff lint and format.
+- Clean split: `data_sources` (API + normalisation), `analysis` (financial rules), `outreach` (plan), `prospects` (storage), `app` (UI only). 62 tests; ruff lint and format.
 
 ## 7. Trade-offs and rejected approaches (1 min)
 - Absolute-only trends (inflation makes everything "Up") vs peers-only (drops the brief's indicator): kept both.

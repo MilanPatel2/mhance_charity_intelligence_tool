@@ -279,22 +279,36 @@ def verdict(s: dict, pr: dict) -> None:
     box("\n".join(lines), icon=icon)
 
 
-def trustees_block(rec: dict) -> None:
+def key_people_block(rec: dict) -> None:
+    """Key people, as far as the register goes: the chair and trustees (named), and senior staff (counted, not named)."""
+    st.markdown("**Key people**")
     tr = sorted(rec["trustees"], key=lambda t: (not t["is_chair"], t["name"] or ""))
-    st.markdown("**Trustees (the charity's board)**")
+    since = lambda t: f" (since {t['appointed'][:4]})" if t.get("appointed") else ""
+    lines = []
+    for c in [t for t in tr if t["is_chair"]]:
+        others = c.get("other_charities") or []
+        lines.append(
+            f"**Chair:** {O.nice_name(c['name'])}{since(c)}"
+            + (f" · also a trustee of {len(others)} other charit{'y' if len(others) == 1 else 'ies'}" if others else "")
+        )
+    others = [t for t in tr if not t["is_chair"]]
+    if others:
+        shown, more = others[:10], len(others) - 10
+        lines.append("**Trustees:** " + ", ".join(O.nice_name(t["name"]) + since(t) for t in shown) + (f", and {more} more (see below)" if more > 0 else ""))
     if not tr:
-        st.caption("The Charity Commission doesn't list any trustees for this charity.")
-        return
-    chairs = [O.nice_name(t["name"]) for t in tr if t["is_chair"]]
-    others = [O.nice_name(t["name"]) for t in tr if not t["is_chair"]]
-    shown, more = others[:10], len(others) - 10
-    text = (f"**Chair:** {', '.join(chairs)}  \n" if chairs else "") + (
-        f"**Trustees:** {', '.join(shown)}" + (f", and {more} more (see below)" if more > 0 else "") if others else ""
-    )
-    st.markdown(text)
+        lines.append("The register doesn't list any trustees for this charity.")
+    staff = rec.get("staff") or {}
+    if staff.get("employees"):
+        bits = [f"{staff['employees']:,} employees"]
+        if staff.get("over_60k"):
+            bits.append(f"{staff['over_60k']} paid over £60k" + (f" (highest pay band {staff['top_band']})" if staff.get("top_band") else ""))
+        if staff.get("volunteers"):
+            bits.append(f"{staff['volunteers']:,} volunteers")
+        lines.append("**Staff:** " + " · ".join(bits))
+    st.markdown("  \n".join(lines))
     st.caption(
-        f"{len(tr)} trustee{'s' if len(tr) != 1 else ''} on the register. Trustees are the board, not staff: "
-        "the buyer is usually the chief executive or finance director."
+        "From the Charity Commission register. It names trustees (the unpaid board) but not staff, so the chief executive "
+        "and finance director, who usually make buying decisions, need finding on the charity's website or LinkedIn."
     )
 
 
@@ -323,7 +337,7 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
 
     if not years:
         st.info("No accounts on record yet, so there are no income or expenditure figures. This is usually a newly registered or very small charity.")
-        trustees_block(rec)
+        key_people_block(rec)
         return
 
     # 3-7. Income, expenditure, surplus / deficit: one table, as the brief asks
@@ -333,7 +347,7 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
     verdict(s, pr)
 
     # 8. Key people
-    trustees_block(rec)
+    key_people_block(rec)
 
     # ---------- secondary detail, below the summary ----------
     st.divider()
@@ -375,9 +389,19 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
                 st.markdown(f"**{k}:** {v}")
     tr = sorted(rec["trustees"], key=lambda t: (not t["is_chair"], t["name"] or ""))
     if tr:
-        with st.expander(f"All {len(tr)} trustees with start dates"):
+        with st.expander(f"All {len(tr)} trustees, with start dates and other boards"):
             st.dataframe(
-                pd.DataFrame([{"Name": t["name"], "Role": "Chair" if t["is_chair"] else "Trustee", "Since": t["appointed"] or "–"} for t in tr]),
+                pd.DataFrame(
+                    [
+                        {
+                            "Name": O.nice_name(t["name"]),
+                            "Role": "Chair" if t["is_chair"] else "Trustee",
+                            "Since": t["appointed"] or "–",
+                            "Also a trustee of": ", ".join(O.nice_name(x) for x in t.get("other_charities") or []) or "–",
+                        }
+                        for t in tr
+                    ]
+                ),
                 hide_index=True,
                 width="stretch",
             )

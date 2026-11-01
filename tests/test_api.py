@@ -55,7 +55,7 @@ def test_lookup_parses_everything(api):
     assert rec["name"] == "OXFAM"
     assert [f["income"] for f in rec["financials"]] == [400_600_000, 368_000_000, 339_366_903]  # inc_total fallback
     assert rec["financials"][1]["expenditure"] == 396_400_000
-    assert rec["trustees"][0] == {"name": "Jane Chair", "is_chair": True, "appointed": "2020-01-01"}
+    assert rec["trustees"][0] == {"name": "Jane Chair", "is_chair": True, "appointed": "2020-01-01", "other_charities": []}
     assert rec["profile"]["Sectors"] == "Overseas Aid/famine Relief"
     assert rec["profile"]["Address"] == "Oxfam House, John Smith Drive, OX4 2JY"
     assert rec["profile"]["Employees"] == 2000
@@ -160,3 +160,54 @@ def test_snapshot_version_changes_when_data_is_replaced(monkeypatch, tmp_path):
     f.write_bytes(b"new data")
     os.utime(f, ns=(f.stat().st_atime_ns, f.stat().st_mtime_ns + 1_000_000_000))
     assert data_sources.Snapshot.version() != before
+
+
+def test_trustee_rows_for_other_boards_are_merged():
+    from data_sources import _dedupe_trustees
+
+    rows = [  # shaped like the real API: one row per OTHER charity the trustee also sits on
+        {
+            "name": "NICK HARDWICK",
+            "is_chair": True,
+            "date_of_appointment": "2022-07-20T00:00:00",
+            "reg_charity_number": 270178,
+            "charity_name": "London Homelessness Foundation",
+        },
+        {
+            "name": "NICK HARDWICK",
+            "is_chair": True,
+            "date_of_appointment": "2022-07-20T00:00:00",
+            "reg_charity_number": 1205068,
+            "charity_name": "Middle Temple Charity",
+        },
+        {"name": "Joanne Harper", "is_chair": False, "date_of_appointment": "2025-08-01T00:00:00", "reg_charity_number": None, "charity_name": None},
+        {
+            "name": "Joanne Harper",
+            "is_chair": False,
+            "date_of_appointment": None,
+            "reg_charity_number": 226171,
+            "charity_name": "NACRO",
+        },  # own charity: not "other"
+    ]
+    out = _dedupe_trustees(rows, own_reg=226171)
+    assert [t["name"] for t in out] == ["NICK HARDWICK", "Joanne Harper"]
+    assert out[0]["other_charities"] == ["London Homelessness Foundation", "Middle Temple Charity"] and out[0]["is_chair"]
+    assert out[1] == {"name": "Joanne Harper", "is_chair": False, "appointed": "2025-08-01", "other_charities": []}
+
+
+def test_staff_summary_counts_senior_pay_bands_without_names():
+    from data_sources import staff_summary
+
+    ov = {
+        "employees": 873,
+        "volunteers": 97,
+        "employees_over_60k": True,
+        "band_60001_70000": 10,
+        "band_150001_200000": 1,
+        "band_90001_100000": 2,
+        "band_over_500000": 0,
+    }
+    assert staff_summary(ov) == {"employees": 873, "volunteers": 97, "over_60k": 13, "top_band": "£150k–£200k"}
+    assert staff_summary({"band_over_500000": 1})["top_band"] == "over £500k"
+    assert staff_summary({"employees": 4, "employees_over_60k": False})["over_60k"] == 0
+    assert staff_summary({}) == {"employees": None, "volunteers": None, "over_60k": None, "top_band": None}

@@ -151,7 +151,8 @@ class LiveAPI:
                 for f in fin
                 if f.get("financial_period_end_date") and isinstance(f.get("income") if f.get("income") is not None else f.get("inc_total"), (int, float))
             ],
-            "trustees": _dedupe_trustees(tr),
+            "trustees": _dedupe_trustees(tr, reg_number),
+            "staff": staff_summary(ov),
         }
 
 
@@ -181,16 +182,42 @@ def _as_list(x) -> list[dict]:
     return [r for r in (x or []) if isinstance(r, dict)]
 
 
-def _dedupe_trustees(rows: list[dict]) -> list[dict]:
-    """The API sometimes repeats the same trustee (e.g. once per role). Keep one row per name."""
-    seen, out = set(), []
+def _dedupe_trustees(rows: list[dict], own_reg: int | None = None) -> list[dict]:
+    """One row per trustee. The API repeats a trustee once for each OTHER charity they're also a trustee of
+    (those rows carry that charity's name and number), so merge them and keep the list of other boards."""
+    by_name: dict[str, dict] = {}
     for t in rows:
         name = (t.get("name") or t.get("trustee_name") or "").strip()
-        if not name or name.lower() in seen:
+        if not name:
             continue
-        seen.add(name.lower())
-        out.append({"name": name, "is_chair": bool(t.get("is_chair")), "appointed": (t.get("date_of_appointment") or "")[:10] or None})
-    return out
+        row = by_name.setdefault(name.lower(), {"name": name, "is_chair": False, "appointed": None, "other_charities": []})
+        row["is_chair"] = row["is_chair"] or bool(t.get("is_chair"))
+        row["appointed"] = row["appointed"] or (t.get("date_of_appointment") or "")[:10] or None
+        other, other_reg = t.get("charity_name"), t.get("reg_charity_number")
+        if other and other_reg and other_reg != own_reg and other not in row["other_charities"]:
+            row["other_charities"].append(other)
+    return list(by_name.values())
+
+
+def staff_summary(ov: dict) -> dict:
+    """Senior staff from the latest annual return. The register never names staff, but it does report how many
+    employees earn over £60k, in £10k-£50k pay bands. Returns {employees, volunteers, over_60k, top_band}."""
+    bands = []
+    for k, v in (ov or {}).items():
+        if k.startswith("band_") and isinstance(v, int) and v > 0:
+            nums = [int(x) for x in k.split("_")[1:] if x.isdigit()]
+            bands.append((nums[0], v, k))
+    top = max(bands, default=None)
+    label = None
+    if top:
+        nums = [int(x) for x in top[2].split("_")[1:] if x.isdigit()]
+        label = f"over £{nums[0] // 1000}k" if "over" in top[2] else f"£{(nums[0] - 1) // 1000}k–£{nums[1] // 1000}k"
+    return {
+        "employees": ov.get("employees") if ov else None,
+        "volunteers": ov.get("volunteers") if ov else None,
+        "over_60k": sum(v for _, v, _ in bands) if bands else (0 if ov and ov.get("employees_over_60k") is False else None),
+        "top_band": label,
+    }
 
 
 class Snapshot:

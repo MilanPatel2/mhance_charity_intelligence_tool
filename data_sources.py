@@ -207,3 +207,15 @@ class Snapshot:
     @property
     def extract_date(self) -> str:
         return str(self.charities["extract_date"].iloc[0])
+
+    @staticmethod
+    def version() -> str:
+        """Changes whenever the data files are replaced (e.g. by the weekly refresh), so caches know to reload."""
+        parts = []
+        for name in ("charities.parquet", "financials.parquet"):
+            try:
+                st = (DATA / name).stat()
+                parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+            except OSError:
+                parts.append("missing")
+        return "|".join(parts)

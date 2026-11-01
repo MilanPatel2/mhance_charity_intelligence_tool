@@ -29,10 +29,12 @@ streamlit run app.py              # opens http://localhost:8501
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 59 tests
+python -m pytest            # 60 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
+
+**Weekly data refresh.** `.github/workflows/refresh-data.yml` runs every Monday at 04:17 UTC (or on demand: *Actions → Refresh charity snapshot → Run workflow*). It downloads the Commission's latest bulk extract, rebuilds `data/*.parquet`, and commits them if anything changed. Streamlit Cloud redeploys on that push, and the app reloads the new files without a restart: cached data is keyed on the files' modification time and size (`Snapshot.version()`). The bot's commits land on `main`, so run `git pull` before pushing local work.
 
 **Deploy (public):** push to GitHub, create an app on Streamlit Community Cloud pointing at `app.py`, and add `CHARITY_API_KEY` under *Secrets*. Requirements:
 - Python 3.10+ and `requirements.txt` (Streamlit **1.65+**; the app uses top navigation, badges and widget state that survives page switches).
@@ -167,7 +169,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 ## Known limitations
 
 - **Bulk extract vs API history:** for some charities the bulk annual-return file holds fewer years than the API's financial history (e.g. St Francis' Children's Society: 2 vs 5). The prospect list (bulk) can therefore say "Under 3 yrs data" where the live lookup shows a full trend. The live lookup is authoritative.
-- **Peer benchmarks** come from the bulk snapshot (refreshed by re-running `build_dataset.py`; a weekly GitHub Action is included but hasn't been run).
+- **Peer benchmarks** come from the bulk snapshot, which is up to a week old: it's refreshed weekly (see *Weekly data refresh*), not live.
 - **Saved prospects** live in one local JSON file: single user, not shared, and reset on hosts with temporary disks such as Streamlit Cloud. Edits to a draft last for the session; the plan regenerates from data.
 - **No staff contact data:** the register gives trustees and published contact details only.
 - **Budget timing** is a rule-of-thumb estimate, labelled as such.
@@ -199,7 +201,7 @@ outreach.py          Hooks, evidence, recipient, estimated timing, scheduling, a
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence
 data_sources.py      Charity Commission API client (cached, normalised) + bulk Snapshot
 build_dataset.py     Bulk extract -> data/*.parquet
-tests/               59 pytest tests
+tests/               60 pytest tests
 WALKTHROUGH.md       10–15 minute demo outline
 pyproject.toml       ruff + pytest config
 ```

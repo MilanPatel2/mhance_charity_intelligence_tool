@@ -144,3 +144,19 @@ def test_no_trustees_is_an_empty_list(api, monkeypatch):
     fake["charitytrusteeinformationv2/202918/0"] = None
     monkeypatch.setattr(api, "_get", lambda path: fake.get(path))
     assert api.lookup(202918)["trustees"] == []
+
+
+def test_snapshot_version_changes_when_data_is_replaced(monkeypatch, tmp_path):
+    import os
+
+    import data_sources
+
+    monkeypatch.setattr(data_sources, "DATA", tmp_path)
+    assert data_sources.Snapshot.version() == "missing|missing"
+    for name in ("charities.parquet", "financials.parquet"):
+        (tmp_path / name).write_bytes(b"old")
+    before = data_sources.Snapshot.version()
+    f = tmp_path / "charities.parquet"
+    f.write_bytes(b"new data")
+    os.utime(f, ns=(f.stat().st_atime_ns, f.stat().st_mtime_ns + 1_000_000_000))
+    assert data_sources.Snapshot.version() != before

@@ -43,8 +43,13 @@ def api_key() -> str | None:
     return k or os.getenv("CHARITY_API_KEY")
 
 
-@st.cache_resource
-def get_snapshot() -> Snapshot:
+# The data files are replaced by the weekly refresh (.github/workflows/refresh-data.yml). Every cached
+# function that reads them takes the files' version, so a refresh is picked up without restarting the app.
+DATA_VERSION = Snapshot.version()
+
+
+@st.cache_resource(max_entries=1)
+def get_snapshot(version: str = "") -> Snapshot:
     return Snapshot()
 
 
@@ -54,28 +59,28 @@ def get_api(key: str) -> tuple[LiveAPI, str | None]:
     return api, api.check_key()
 
 
-@st.cache_data(show_spinner="Preparing the prospect list (first load only)…")
-def market() -> tuple[pd.DataFrame, dict]:
-    base = A.base_table(get_snapshot().financials)
+@st.cache_data(show_spinner="Preparing the prospect list (first load only)…", max_entries=1)
+def market(version: str = "") -> tuple[pd.DataFrame, dict]:
+    base = A.base_table(get_snapshot(version).financials)
     return base, A.benchmarks(base)
 
 
-@st.cache_data(show_spinner=False)
-def prospect_table(band: float, hot: float, small: float) -> pd.DataFrame:
-    base, bench = market()
-    return get_snapshot().charities.merge(A.apply_trends(base, bench, band, hot, small), on="org_number", how="left")
+@st.cache_data(show_spinner=False, max_entries=20)
+def prospect_table(band: float, hot: float, small: float, version: str = "") -> pd.DataFrame:
+    base, bench = market(version)
+    return get_snapshot(version).charities.merge(A.apply_trends(base, bench, band, hot, small), on="org_number", how="left")
 
 
-@st.cache_data
-def area_options() -> list[str]:
-    c = get_snapshot().charities
+@st.cache_data(max_entries=1)
+def area_options(version: str = "") -> list[str]:
+    c = get_snapshot(version).charities
     vals = pd.concat([c["local_authorities"].str.split(r" \| ").explode(), c["regions"].str.split(r" \| ").explode()])
     return sorted({x for x in vals.dropna() if x})
 
 
-@st.cache_data
-def sector_options() -> list[str]:
-    s = get_snapshot().charities["sectors"].str.split(r" \| ").explode().dropna()
+@st.cache_data(max_entries=1)
+def sector_options(version: str = "") -> list[str]:
+    s = get_snapshot(version).charities["sectors"].str.split(r" \| ").explode().dropna()
     return sorted({x for x in s if x})
 
 
@@ -99,10 +104,10 @@ def _add_cb(items):
 if st.session_state.get("_toast"):
     st.toast(st.session_state.pop("_toast"), icon=":material/star:")
 
-SNAP = get_snapshot()
+SNAP = get_snapshot(DATA_VERSION)
 KEY = api_key()
 API, API_PROBLEM = get_api(KEY) if KEY else (None, None)
-_, BENCH = market()
+_, BENCH = market(DATA_VERSION)
 _d = pd.Timestamp(SNAP.extract_date) if SNAP.extract_date else None
 LIST_DATE = f"{_d.day} {_d:%B %Y}" if _d is not None else "unknown"
 
@@ -485,9 +490,9 @@ def save_all_button(rows: list[dict], key: str, what: str = "on this page") -> N
 EXPLORE = [226171, 202918, 1099776, 1089464, 225971, 205846]
 
 
-@st.cache_data(show_spinner=False)
-def explore_cards() -> list[dict]:
-    c = get_snapshot().charities.drop_duplicates("reg_number").set_index("reg_number")
+@st.cache_data(show_spinner=False, max_entries=1)
+def explore_cards(version: str = "") -> list[dict]:
+    c = get_snapshot(version).charities.drop_duplicates("reg_number").set_index("reg_number")
     return [
         {"reg": reg, "name": O.nice_name(c.at[reg, "name"]), "income": None if pd.isna(c.at[reg, "latest_income"]) else float(c.at[reg, "latest_income"])}
         for reg in EXPLORE
@@ -529,7 +534,7 @@ def opening_state() -> None:
         charity_cards(recent, "recent")
     else:
         st.markdown("#### Explore charities")
-        charity_cards(explore_cards(), "explore")
+        charity_cards(explore_cards(DATA_VERSION), "explore")
 
 
 # ---------- page 1: look up a charity (the main page) ----------
@@ -598,9 +603,9 @@ def page_prospects() -> None:
     )
     small = float(min_inc or A.SMALL_CHARITY)
     exclude_small = bool(min_inc)
-    df = prospect_table(band, hot, small)
-    areas = f1.multiselect("Area they work in", area_options(), placeholder="Anywhere", key="areas", persist_state="session")
-    sectors = f2.multiselect("Type of work", sector_options(), placeholder="Any", key="sectors", persist_state="session")
+    df = prospect_table(band, hot, small, DATA_VERSION)
+    areas = f1.multiselect("Area they work in", area_options(DATA_VERSION), placeholder="Anywhere", key="areas", persist_state="session")
+    sectors = f2.multiselect("Type of work", sector_options(DATA_VERSION), placeholder="Any", key="sectors", persist_state="session")
     prio_f = f3.multiselect(
         "Priority", [A.HIGH, A.MEDIUM, A.LOW, A.CHECK_FIRST], format_func=A.PRIORITY_LABELS.get, placeholder="Any", key="prio_f", persist_state="session"
     )

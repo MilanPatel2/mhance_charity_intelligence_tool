@@ -126,6 +126,7 @@ def need_api() -> bool:
     return False
 
 
+HOT_DOT = ":green[●]"  # marks hot prospects in lists (the words "hot prospect" are in the line too)
 PEER_WORDS = {A.ABOVE: "ahead of", A.INLINE: "in line with", A.BELOW: "behind"}
 PEER_SHORT = {A.ABOVE: "ahead of", A.INLINE: "in line with", A.BELOW: "behind"}
 
@@ -472,7 +473,8 @@ def charity_dialog(reg: int) -> None:
 
 def result_list(rows: list[dict], key: str, page_size: int = 15, allow_save: bool = True) -> list[dict]:
     """Charities as a simple list: name and key facts, with a 'View details' button and a 'Save' button.
-    rows: [{"reg": int, "name": str, "line": str}]. Returns the rows shown on the current page."""
+    rows: [{"reg": int, "name": str, "line": str, "hot": bool (optional)}]. Hot prospects get a green dot.
+    Returns the rows shown on the current page."""
     if not rows:
         return []
     pages = max(1, -(-len(rows) // page_size))
@@ -481,7 +483,8 @@ def result_list(rows: list[dict], key: str, page_size: int = 15, allow_save: boo
     for r in shown:
         with st.container(border=True):
             c1, c2, c3 = st.columns([6, 1.4, 1.6], vertical_alignment="center")
-            c1.markdown(f"**{O.nice_name(r['name'])}** · #{r['reg']}  \n:gray[{r['line']}]")
+            dot = f"{HOT_DOT} " if r.get("hot") else ""
+            c1.markdown(f"{dot}**{O.nice_name(r['name'])}** · #{r['reg']}  \n:gray[{r['line']}]")
             if c2.button("View details", key=f"{key}_view_{r['reg']}", width="stretch"):
                 charity_dialog(int(r["reg"]))
             if allow_save:
@@ -790,7 +793,12 @@ def page_prospects() -> None:
     if res.empty:
         st.info("No charities match these filters. Try removing a filter, or include small charities.")
     else:
-        page_rows = [{"reg": int(r.reg_number), "name": r.name, "line": prospect_line(r)} for r in res.head(600).itertuples()]
+        top = res.head(600)
+        page_rows = [
+            {"reg": int(r.reg_number), "name": r.name, "line": prospect_line(r), "hot": bool(h)} for r, h in zip(top.itertuples(), top["_hot"], strict=True)
+        ]
+        if top["_hot"].any():
+            st.caption(f"{HOT_DOT} Hot prospect: income up more than {hot:.0%} on the year before (not counting growth from a small base).")
         sig = (tuple(areas), tuple(sectors), tuple(prio_f), sort_by, name_f, trend_f, exclude_small, small, max_inc)
         if st.session_state.get("_pf") != sig:
             st.session_state["_pf"] = sig
@@ -865,7 +873,7 @@ def page_list() -> None:
                         bits.append(A.net_label(latest["net"]))
                     tag = " · high % growth from a small base" if s["small_base_growth"] else " · hot prospect" if s["hot"] else ""
                     bits.append(f"{A.PRIORITY_LABELS[pr['level']]} priority" + tag)
-                    rows.append({"reg": n, "name": rec["name"], "line": " · ".join(bits)})
+                    rows.append({"reg": n, "name": rec["name"], "line": " · ".join(bits), "hot": bool(s["hot"] and not s["small_base"])})
                     export_rows.append(
                         {
                             "reg_number": n, "name": rec["name"], "priority": pr["level"], "latest_total_income": latest.get("income"),
@@ -884,6 +892,8 @@ def page_list() -> None:
                 bar.progress((i + 1) / len(nums), text=f"Checked {i + 1} of {len(nums)}")
             bar.empty()
             if rows:
+                if any(r["hot"] for r in rows):
+                    st.caption(f"{HOT_DOT} Hot prospect: income up more than {hot:.0%} on the year before (not counting growth from a small base).")
                 result_list(rows, "listcheck", page_size=20)
                 save_all_button(rows, "save_list", what="in this list")
                 st.download_button(

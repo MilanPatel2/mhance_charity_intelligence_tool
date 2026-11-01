@@ -1,9 +1,11 @@
 # Walkthrough outline (10–15 minutes)
 
-Before recording: run `streamlit run app.py`, open **My prospects** and fill in *Settings* at the bottom (your name, role and Calendly link). Remove any test prospects so the list starts clean.
+Live app: <https://mhancecharityintelligencetool-4xov6dpr84qqtht6hchbh6.streamlit.app/>
+
+Before recording: open the live app (or run `streamlit run app.py`), open **My prospects** and fill in *Settings* at the bottom (your name, role and Calendly link). Remove any test prospects so the list starts clean.
 
 ## 1. The business problem (1 min)
-mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks charities one by one on the Charity Commission site to work out who is growing, then writes outreach from scratch. That's slow, inconsistent, and the research and the outreach are disconnected. This tool makes it one flow: **search → understand → save → outreach plan → copy/export.**
+mhance provides Microsoft Dynamics 365 solutions to charities. Without a dedicated tool, finding growing charities means checking them individually on the Charity Commission website and writing each message from scratch. This tool brings it into one flow: **search → review the financial picture → save as a prospect → generate the outreach plan → copy/export.**
 
 ## 2. A real search, start to finish (2 min)
 - **Look up a charity** (the main page) → start typing `cancer res`: the dropdown suggests matching charities. Then type `make a wish` and press Enter: the live register is searched (with a hyphenated retry) and *Make-A-Wish Foundation UK* opens. A registration number (e.g. `226171`) + Enter works too. Clear the search box to show it under *Recent searches*.
@@ -31,7 +33,10 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 ## 6. Technical and design choices (1–2 min)
 - Streamlit for speed and a real UI for non-technical users.
 - Live API for named charities, the free daily bulk extract only for register-wide filtering and peer benchmarks; no silent fallback.
-- Rules, not an LLM, for outreach: every sentence traces to data, it's deterministic, and it's tested.
+- Clear priority tiers rather than a score, so a salesperson can explain the recommendation to a manager.
+- Plain language and one main results table, because the brief prioritises clarity.
+- Adjustable rules in Settings, so users can change what counts as a "hot prospect".
+- Outreach drafts are rules-based in this prototype, filled from the filings; AI-generated outreach is a planned next step.
 - Clean split: `data_sources` (API + normalisation), `analysis` (financial rules), `outreach` (plan), `prospects` (storage), `app` (UI only). 63 tests; ruff lint and format.
 
 ## 7. Trade-offs and rejected approaches (1 min)
@@ -47,8 +52,11 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 - Budget timing is an estimate.
 - England and Wales only.
 
-## 9. Production readiness (1 min)
-Write prospects and steps into **Dynamics 365** as leads and activities; Entra ID login; scheduled snapshot refresh; shared cache with retries; secrets in Key Vault; adoption metrics (prospects saved → meetings booked).
-
-## 10. With more time (30 s)
-An optional AI polishing layer on top of the rules (facts locked to the data), income-by-source filters across the whole register, and weekly "newly hot in your patch" alerts.
+## 9. Possible next steps (1–2 min)
+1. Work with the GTM team to confirm which charity signals matter most, then refine the metrics and priority rules.
+2. Connect to **Dynamics 365** so staff can save charities and outreach plans directly to their existing CRM workflow.
+3. Secure it for mhance staff: Microsoft Entra ID sign-in, Azure Key Vault for the API key, a shared cache with retry handling.
+4. Alerts and tracking: a weekly list of charities that have newly become hot in a salesperson's area or sector.
+5. Richer filters, such as income source, to find charities winning government contracts.
+6. Azure OpenAI to generate tailored outreach (emails and call scripts), with staff review before use.
+7. Measure adoption and outcomes: prospects saved, emails sent, replies, meetings booked.

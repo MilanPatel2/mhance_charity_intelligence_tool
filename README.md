@@ -1,10 +1,16 @@
-# Charity Growth Finder (mhance · SilverTree Pioneers Track A)
+# mhance Charity Intelligence Tool
+
+**Charity Growth Finder** · SilverTree Pioneers Track A · Milan Patel
+
+**Live app:** <https://mhancecharityintelligencetool-4xov6dpr84qqtht6hchbh6.streamlit.app/>
+
+**Summary:** Charity Growth Finder helps mhance's sales team identify growing UK charities and turn that insight into a practical outreach plan. The prototype covers the core requirements and stretch goals in the brief and is live on Streamlit Community Cloud.
 
 **What it does:** type a UK charity's name or registration number and, on one screen, see its **total income** and **total expenditure** for the last 3 years, whether each is **▲ Up, ► Flat or ▼ Down**, its **net surplus or deficit**, its key people (chair, trustees and senior-staff counts), and why it may or may not be worth contacting. Add it to your prospects and get an evidence-based **outreach plan**: the hook, a first email with your Calendly link, an estimated best time to approach, and a 4-step follow-up sequence you can copy, open in your email app or download.
 
-**The problem it solves:** mhance's sales team checks charities one at a time on the Charity Commission website to work out who is growing. That's slow, inconsistent and disconnected from the outreach that follows. This tool turns it into one workflow:
+**The problem it solves:** mhance provides Microsoft Dynamics 365 solutions to charities. Without a dedicated tool, finding growing charities means checking them individually on the Charity Commission website and writing each message from scratch. The tool brings this into one flow:
 
-> ① Search → ② understand the financial direction and priority → ③ save as a prospect → ④ get the outreach plan → ⑤ copy / export
+> ① Search → ② review the financial picture and priority → ③ save as a prospect → ④ generate the outreach plan → ⑤ copy / export
 
 | Page | What a salesperson does there | Data |
 |---|---|---|
@@ -161,8 +167,10 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 | Streamlit | Real UI for non-technical users in hours; tables, charts, downloads; free hosting with a shareable link. | CLI (salespeople won't use a terminal); React/Next.js (better long-term, too slow for 24h). |
 | Live API for named charities + bulk extract for register-wide jobs | Each source does what it's good at; no silent fallback. | API-only (can't filter by area/sector/income; 172k calls); bulk-only (up to a day old; brief asks for the API). |
 | Up/flat/down **and** vs peers | Meets the brief literally and adds the context that makes it useful. | Absolute only (inflation makes most charities "Up"); peers only (drops the brief's indicator). |
-| Rules-based outreach, not an LLM | Every sentence traces to data; can't invent facts; deterministic and testable; no API costs or keys. | LLM drafting (nicer prose, but hallucination risk with real names and figures). Kept as a future layer on top of the rules. |
-| Explainable priority tiers | A salesperson can repeat the reason to a manager. | Weighted 0–100 score (false precision, hard to explain). |
+| Clear priority tiers rather than a score | A salesperson can explain the recommendation to a manager. | Weighted 0–100 score (false precision, hard to explain). |
+| Plain language and one main results table | The brief prioritises clarity. | Metric cards plus a second table (repeated the same figures and mixed one-year values with 3-year changes). |
+| Adjustable rules in Settings | Users can change what counts as a "hot prospect" and as up / down. | Fixed thresholds in code only. |
+| Rules-based outreach in the prototype | Drafts are filled from the charity's filings, deterministic and testable, with no extra API costs or keys. | AI-generated outreach: planned as a next step with Azure OpenAI and staff review before use (see *Possible next steps*). |
 | JSON file for saved prospects | Zero setup, inspectable, enough for one user. | SQLite/Postgres (overkill for a prototype); Dynamics 365 (the right production home). |
 | 24h request cache (SQLite) | Accounts change yearly; instant repeats; polite to the API. | No cache; in-memory only (lost on restart). |
 
@@ -176,17 +184,19 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **England & Wales only:** Scottish (OSCR) and Northern Irish charities aren't on this register.
 - The **£1m–£100m target range** for Dynamics 365 is an assumption, not mhance data.
 
-## What I'd change for production
+## Possible next steps
 
-1. **Write to Dynamics 365 instead of a file:** prospects become leads/accounts, sequence steps become activities and tasks (Dataverse Web API or Power Automate). That also solves multi-user, history and reporting.
-2. **Scheduled refresh** of the bulk snapshot and benchmarks, plus monitoring of API errors and rate limits.
-3. **Shared cache** (Redis/Azure Cache), retry with back-off, and a service key held in Azure Key Vault.
-4. **Authentication** (Entra ID) so only mhance staff can use it.
-5. **Measure adoption:** prospects saved, emails opened from the tool, meetings booked per sequence.
+1. **Refine the signals with the GTM team:** confirm which charity signals matter most, then refine the metrics and priority rules.
+2. **Connect to Dynamics 365** so mhance staff can save charities and outreach plans directly to their existing CRM workflow (charities as accounts, prospects as leads, sequence steps as activities and tasks, via the Dataverse Web API or Power Automate).
+3. **Secure it for mhance staff:** Microsoft Entra ID sign-in, Azure Key Vault for the API key, and a shared cache with retry handling.
+4. **Alerts and tracking:** a weekly list of charities that have newly become hot in a salesperson's area or sector.
+5. **Richer filters,** such as income source, to identify charities winning government contracts.
+6. **Azure OpenAI for tailored outreach:** generate emails and call scripts from the charity's data, with staff review before use.
+7. **Measure adoption and outcomes:** prospects saved, emails sent, replies and meetings booked.
 
-## Intentionally left out
+## Intentionally left out (for this prototype)
 
-- AI-written emails (hallucination risk; a polishing layer could sit on top of the rules later).
+- AI-generated outreach (planned next step: Azure OpenAI with staff review).
 - Sending email or LinkedIn messages from the tool (keeps a human in the loop; avoids spam and compliance risk).
 - Scraping staff names or personal emails.
 - Scottish and Northern Irish registers.

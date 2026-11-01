@@ -2,8 +2,8 @@
 
 Rules-based on purpose: every sentence in a message comes from a template filled with
 figures from the Charity Commission, so nothing can be invented. A salesperson edits
-the draft before it goes out. (An LLM could polish the wording later; the facts would
-still come from here.)
+the draft before it goes out. (A planned next step is Azure OpenAI to generate tailored
+outreach, with staff review before use; the facts would still come from here.)
 
 HOOKS (strongest first; the best "email-safe" one opens the first email,
 the next one is used in the day-3 follow-up, the top three go in the call script)

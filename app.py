@@ -202,73 +202,52 @@ def year_label(period_end) -> str:
     return f"{d:%b %Y}"
 
 
-DIRECTION_BADGE = {  # (icon, colour) for income; expenditure uses neutral colours (spending more isn't good or bad)
-    "income": {A.UP: (":material/trending_up:", "green"), A.FLAT: (":material/trending_flat:", "gray"), A.DOWN: (":material/trending_down:", "red")},
-    "expenditure": {A.UP: (":material/trending_up:", "blue"), A.FLAT: (":material/trending_flat:", "gray"), A.DOWN: (":material/trending_down:", "blue")},
-}
 NO_TREND = {
     A.NEW: "not enough years on record to tell",
     A.SMALL: "income too small to measure a trend",
     A.CHECK: "figures look wrong, check first",
 }
+TREND_TEXT = {A.UP: "▲ Up", A.FLAT: "► Flat", A.DOWN: "▼ Down"}
+TREND_SHORT = {A.NEW: "Too few years", A.SMALL: "Too small to tell", A.CHECK: "⚠ Check figures"}  # full reason is in the priority box
 
 
-def money_card(s: dict, field: str, title: str, help_text: str) -> None:
-    """The brief's layout: the last 3 years of figures, the % change across them underneath, then the trend.
-    Every number says which period it covers, so a 3-year change is never shown under a single year's figure."""
+def summary_table(s: dict) -> None:
+    """The brief's core output as ONE table: the last 3 years across the top, then for income and
+    expenditure the change over those years and the up / flat / down trend in the same row."""
     years = s["years"]
     n = len(years)
-    change, change_abs = s.get(f"{field}_change"), s.get(f"{field}_change_abs")
-    with st.container(border=True):
-        st.markdown(f"**{title}, last {n} year{'s' if n != 1 else ''}**" if n else f"**{title}**", help=help_text)
-        if years:
-            head = " | ".join(year_label(y["period_end"]) for y in years)
-            vals = " | ".join(f"**{A.money(y.get(field))}**" if i == n - 1 else A.money(y.get(field)) for i, y in enumerate(years))
-            st.markdown(f"| {head} |\n|{'---|' * n}\n| {vals} |")
-        else:
-            st.caption("No accounts on record.")
-        if change is not None and not pd.isna(change) and n >= 2:
-            up = change >= 0
-            moved = field == "income" and s.get("income_direction") in (A.UP, A.DOWN)
-            st.badge(
-                f"{A.pct_abs(change, change_abs)} from {year_label(years[0]['period_end'])} to {year_label(years[-1]['period_end'])}",
-                icon=":material/arrow_upward:" if up else ":material/arrow_downward:",
-                color=("green" if up else "red") if moved else "gray",
-            )
-        elif 0 < n < 3:
-            st.caption(f"Only {n} year{'s' if n != 1 else ''} of accounts on record, so no 3-year change.")
+    cols, seen = [], {}
+    for y in years:  # two returns can end in the same month after a year-end change
+        lbl = year_label(y["period_end"])
+        seen[lbl] = seen.get(lbl, 0) + 1
+        cols.append(lbl if seen[lbl] == 1 else f"{lbl} ({seen[lbl]})")
+
+    def change(field: str) -> str:
+        ch = s.get(f"{field}_change")
+        return "–" if n < 2 or ch is None or pd.isna(ch) else A.pct_abs(ch, s.get(f"{field}_change_abs"))
+
+    def trend(field: str) -> str:
         d = s.get(f"{field}_direction")
-        name = "Income" if field == "income" else "Expenditure"
-        if d:
-            icon, colour = DIRECTION_BADGE[field][d]
-            st.badge(f"{name} trend: {d}", icon=icon, color=colour)
-        else:
-            st.badge(f"{name} trend: {NO_TREND.get(s['status'], 'not available')}", icon=":material/help:", color="gray")
+        return TREND_TEXT[d] if d else TREND_SHORT.get(s["status"], "–")
 
-
-def net_card(s: dict) -> None:
-    latest = s["years"][-1] if s["years"] else {}
-    net = latest.get("net")
-    with st.container(border=True):
-        st.metric(
-            "Net surplus / deficit, latest year",
-            A.net_label(net),
-            help="Total income minus total expenditure for the same year. A deficit means it spent more than it received.",
-        )
-        if net is None:
-            st.badge("Expenditure not reported", icon=":material/help:", color="gray")
-        elif net >= 0:
-            st.badge(
-                f"Surplus: {A.pct(net / latest['income']).lstrip('+')} of income" if latest["income"] else "Surplus",
-                icon=":material/add_circle:",
-                color="green",
-            )
-        else:
-            st.badge(
-                f"Deficit: {A.pct(-net / latest['income']).lstrip('+')} of income" if latest["income"] else "Deficit",
-                icon=":material/remove_circle:",
-                color="red",
-            )
+    change_col = "Change over 3 years" if n >= 3 else "Change"
+    rows = {
+        "Total income": [A.money(y["income"]) for y in years] + [change("income"), trend("income")],
+        "Total expenditure": [A.money(y.get("expenditure")) for y in years] + [change("expenditure"), trend("expenditure")],
+        "Surplus / deficit": [A.net_label(y.get("net")) for y in years] + ["", ""],
+    }
+    st.table(
+        pd.DataFrame.from_dict(rows, orient="index", columns=[*cols, change_col, "Trend"]),
+        alt=f"Total income, total expenditure and surplus or deficit for the last {n} years, with the change and trend",
+    )
+    note = (
+        "Columns are the charity's last yearly accounts, oldest first (charities' financial years end on different dates). "
+        f"Trend compares the oldest and newest year: more than ±{band:.0%} is up or down, otherwise flat. "
+        "Surplus / deficit = income − expenditure. Missing figures show as –."
+    )
+    if n < 3:
+        note = f"Only {n} year{'s' if n != 1 else ''} of accounts on record, so no 3-year trend. " + note
+    st.caption(note)
 
 
 def verdict(s: dict, pr: dict) -> None:
@@ -339,40 +318,8 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
         trustees_block(rec)
         return
 
-    # 3-7. Income, expenditure, surplus / deficit
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        money_card(
-            s,
-            "income",
-            "Total income",
-            "The charity equivalent of revenue: everything it received in the year (donations, grants, contracts, trading, investments).",
-        )
-    with c2:
-        money_card(s, "expenditure", "Total expenditure", "Everything the charity spent in the same year.")
-    with c3:
-        net_card(s)
-
-    st.table(
-        pd.DataFrame(
-            [
-                {
-                    "Year ending": year_label(y["period_end"]),
-                    "Total income": A.money(y["income"]),
-                    "Total expenditure": A.money(y.get("expenditure")),
-                    "Net surplus / deficit": A.net_label(y.get("net")),
-                }
-                for y in years
-            ]
-        ),
-        hide_index=True,
-        alt=f"Total income, total expenditure and net surplus or deficit for the last {len(years)} years",
-    )
-    st.caption(
-        f"Last {len(years)} yearly accounts, oldest first. Trend = change from the oldest to the newest year: "
-        f"more than ±{band:.0%} is up or down, otherwise flat. Net surplus / deficit = total income − total expenditure. "
-        "Missing figures show as –."
-    )
+    # 3-7. Income, expenditure, surplus / deficit: one table, as the brief asks
+    summary_table(s)
 
     # 9. Why it may or may not be worth contacting
     verdict(s, pr)

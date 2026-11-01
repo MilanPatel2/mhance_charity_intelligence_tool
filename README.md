@@ -8,7 +8,7 @@
 
 | Page | What a salesperson does there | Data |
 |---|---|---|
-| **Look up a charity** (main page) | Before searching, the page lists the 25 largest charities by total income (select a row to open one). Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
+| **Look up a charity** (main page) | One search box for a full or partial name or a registration number. Below it are **Recent searches** (the last 5 charities opened in this browser session, newest first, as clickable cards), or **Explore charities** examples on a first visit. A name search shows the best match straight away (exact name, then names starting with the search, then names containing it; ties go to the larger charity), with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
 | **Find new prospects** | Filter all ~172,000 registered charities. **Minimum income** is the first filter (default £100k or more; choose *Any* to include small charities). The page says how many charities each option leaves out. Maximum income is under *More filters*. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
 | **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
 | **My prospects** | An action queue, **Your next actions**: overdue first, then due today, then inside the estimated planning window, then later. Replied, stopped or paused prospects are folded into **No action needed**. The selected prospect shows a short brief (**Why this account · Why now · Who · Next**) with one main action and Done / Snooze / Not relevant buttons. The source line separates reported, calculated and estimated information. Drafts, later steps, scoring detail, notes, downloads and settings are one click away in collapsed sections. | Live API |
@@ -29,14 +29,14 @@ streamlit run app.py              # opens http://localhost:8501
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 55 tests
+python -m pytest            # 59 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
 
 **Deploy (public):** push to GitHub, create an app on Streamlit Community Cloud pointing at `app.py`, and add `CHARITY_API_KEY` under *Secrets*. Requirements:
 - Python 3.10+ and `requirements.txt` (Streamlit **1.65+**; the app uses top navigation, badges and widget state that survives page switches).
-- `data/charities.parquet` and `data/financials.parquet` must be in the repo (or rebuilt with `build_dataset.py`) for *Find new prospects* and the largest-charities list.
+- `data/charities.parquet` and `data/financials.parquet` must be in the repo (or rebuilt with `build_dataset.py`) for *Find new prospects* and the example cards on the lookup page.
 - **Saved prospects are a local JSON file.** On Streamlit Cloud every visitor shares the same list and it resets when the app restarts. That's fine for a demo; production would store prospects in Dynamics 365. Set `CHARITY_OUTREACH_FILE` to use a different file (e.g. a test list).
 - After a push that changes `analysis.py` or `outreach.py` but not `app.py`, use *Manage app → Reboot* if you see an error about a missing name: Streamlit Cloud can keep the old module loaded.
 
@@ -142,14 +142,14 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 ## Usability decisions (tested as a first-time salesperson)
 
 - **One screen answers the brief.** The main page is the charity look-up. Name, number, total income and expenditure for 3 years with labelled trends, surplus / deficit, the reason to contact (or not), trustees and **Add to prospects** are all on the page, with no tabs, pop-ups or sections to expand. Typing a number or name and pressing Enter is enough: **0 clicks**. Detail lives below under *More detail*, and other features are separate, clearly named pages.
-- **Name search no longer needs a pop-up.** The largest match is shown straight away (usually the one people mean), with a "Not the right one? Pick another" list above it.
+- **Name search no longer needs a pop-up.** The best match is shown straight away (exact name, then starts with, then contains), with a "Not the right one? Pick another" list above it.
 - **Settings survive page switches** (search box, filters, small-charity threshold), so moving between pages never loses your place.
 
 - **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
 - **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
 - **Plain language.** "Look up a charity", "Add to prospects", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
 - **Facts vs estimates vs drafts are marked.** Headings say which is which: "(from the accounts)", "(estimate)", "Drafts for you to edit".
-- **First screen is never empty.** A search box, then the 25 largest charities with their latest income, expenditure, surplus/deficit and 3-year trend. Selecting a row opens it.
+- **First screen is never empty.** A search box, then **Recent searches** as clickable cards (name, number, latest income, priority). They're kept in Streamlit session state: private to each browser session, never shared with other users, cleared on refresh. A first visit shows a few **Explore charities** examples instead, with figures from the data.
 - **Light theme by default** (`.streamlit/config.toml`), whatever the viewer's system setting.
 
 ## Key decisions and alternatives considered
@@ -199,7 +199,7 @@ outreach.py          Hooks, evidence, recipient, estimated timing, scheduling, a
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence
 data_sources.py      Charity Commission API client (cached, normalised) + bulk Snapshot
 build_dataset.py     Bulk extract -> data/*.parquet
-tests/               55 pytest tests
+tests/               59 pytest tests
 WALKTHROUGH.md       10–15 minute demo outline
 pyproject.toml       ruff + pytest config
 ```

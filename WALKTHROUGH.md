@@ -6,7 +6,7 @@ Before recording: run `streamlit run app.py`, open **My prospects** and fill in 
 mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks charities one by one on the Charity Commission site to work out who is growing, then writes outreach from scratch. That's slow, inconsistent, and the research and the outreach are disconnected. This tool makes it one flow: **search → understand → save → outreach plan → copy/export.**
 
 ## 2. A real search, start to finish (2 min)
-- **Look up a charity** (the main page) → type `nacro` and press Enter → the summary appears straight away (largest match; "pick another" list above it).
+- **Look up a charity** (the main page) → type `nacro` and press Enter → the summary appears straight away (best match; "pick another" list above it). Clear the search box to show it under *Recent searches*.
 - Point out that everything the brief asks for is on one screen: name and number, total income and expenditure for 3 years with labelled trends, net surplus / deficit, why it's worth contacting, trustees, and **Add to prospects**. Then scroll to *More detail* for the chart, peer comparison and the Charity Commission / Companies House links.
 - Then type a number, `202918` (Oxfam), to show search by registration number.
 

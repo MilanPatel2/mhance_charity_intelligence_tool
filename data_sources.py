@@ -18,6 +18,7 @@ LiveAPI.lookup returns a "charity record" dict:
 
 from __future__ import annotations
 
+import re
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import quote
@@ -152,6 +153,25 @@ class LiveAPI:
             ],
             "trustees": _dedupe_trustees(tr),
         }
+
+
+def _norm(text: str) -> str:
+    """Lower case, punctuation removed, leading 'the' dropped: 'The Oxfam!' -> 'oxfam'."""
+    words = re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).split()
+    return " ".join(words[1:] if words[:1] == ["the"] and len(words) > 1 else words)
+
+
+def rank_search_hits(hits: list[dict], query: str, incomes: dict | None = None) -> list[dict]:
+    """Best match first: exact name, then names starting with the query, then names containing it,
+    then anything else the register returned. Ties go to the larger charity, then by name."""
+    q, incomes = _norm(query), incomes or {}
+
+    def key(h):
+        n = _norm(h["name"])
+        tier = 0 if n == q else 1 if n.startswith(q) else 2 if q in n else 3
+        return (tier, -(incomes.get(h["reg_number"]) or 0), n)
+
+    return sorted(hits, key=key)
 
 
 def _as_list(x) -> list[dict]:

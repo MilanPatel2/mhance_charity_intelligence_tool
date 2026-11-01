@@ -15,8 +15,8 @@ import streamlit as st
 
 import analysis as A
 import outreach as O
-from data_sources import APIError, LiveAPI, NotFound, Snapshot
-from prospects import OUTCOMES, ProspectStore
+from data_sources import APIError, LiveAPI, NotFound, Snapshot, rank_search_hits
+from prospects import OUTCOMES, ProspectStore, add_recent
 
 st.set_page_config(page_title="Charity Growth Finder · mhance", page_icon=":material/trending_up:", layout="wide")
 
@@ -418,10 +418,13 @@ def render_charity(rec: dict, key_prefix: str = "") -> None:
     )
 
 
-def show_lookup(reg: int, key_prefix: str) -> None:
+def show_lookup(reg: int, key_prefix: str, remember: bool = False) -> None:
+    """Show one charity. remember=True adds it to this session's recent searches as soon as it loads."""
     try:
         with st.spinner("Getting the latest figures from the Charity Commission…"):
             rec = API.lookup(reg)
+        if remember:
+            _remember(rec)
         render_charity(rec, key_prefix)
     except NotFound:
         st.warning(f"No registered charity has the number {reg}. Check the number, or search by name instead.")
@@ -476,63 +479,55 @@ def save_all_button(rows: list[dict], key: str, what: str = "on this page") -> N
     )
 
 
-TOP_N = 25
+# Examples for a first visit, before there are any recent searches. Figures come from the data, not from here.
+EXPLORE = [226171, 202918, 1099776, 1089464, 225971, 205846]
 
 
 @st.cache_data(show_spinner=False)
-def top_charities(n: int, band: float) -> pd.DataFrame:
-    """The n largest charities by latest total income, with their latest figures and 3-year income trend."""
-    snap = get_snapshot()
-    c = snap.charities.dropna(subset=["latest_income"]).sort_values("latest_income", ascending=False).drop_duplicates("reg_number").head(n)
-    fin = snap.financials[snap.financials["org_number"].isin(c["org_number"])]
-    rows = []
-    for r in c.itertuples():
-        hist = [
-            {k: (None if pd.isna(v) else v) for k, v in h.items()}
-            for h in fin[fin["org_number"] == r.org_number].assign(period_end=lambda d: d["period_end"].astype(str).str[:10]).to_dict("records")
-        ]
-        s = A.summarise(hist, band=band)
-        latest = s["years"][-1] if s["years"] else {}
-        d = s["income_direction"]
-        rows.append(
-            {
-                "reg": int(r.reg_number),
-                "Charity": O.nice_name(r.name),
-                "Number": str(int(r.reg_number)),
-                "Year ending": year_label(latest["period_end"]) if latest else "–",
-                "Total income": latest.get("income", r.latest_income) / 1e6,
-                "Total expenditure": (latest.get("expenditure") or float("nan")) / 1e6,
-                "Net surplus / deficit": A.net_label(latest.get("net")),
-                "Income trend (3 years)": f"{d} {A.pct(s['income_change'])}" if d else A.LABELS.get(s["status"], "–"),
-            }
+def explore_cards() -> list[dict]:
+    c = get_snapshot().charities.drop_duplicates("reg_number").set_index("reg_number")
+    return [
+        {"reg": reg, "name": O.nice_name(c.at[reg, "name"]), "income": None if pd.isna(c.at[reg, "latest_income"]) else float(c.at[reg, "latest_income"])}
+        for reg in EXPLORE
+        if reg in c.index
+    ]
+
+
+def _open_charity(reg: int) -> None:
+    st.session_state["q"] = str(reg)
+
+
+def _remember(rec: dict) -> None:
+    """Add a successfully opened charity to this session's recent searches (private to this browser session)."""
+    s = summary_of(rec)
+    latest = s["years"][-1]["income"] if s["years"] else None
+    entry = {"reg": rec["reg_number"], "name": O.nice_name(rec["name"]), "income": latest, "priority": A.priority(s)["level"] if s["years"] else None}
+    st.session_state["recent"] = add_recent(st.session_state.get("recent", []), entry)
+
+
+def charity_cards(items: list[dict], key: str) -> None:
+    """Whole-card buttons: name, number, latest income, and priority if already worked out."""
+    for i, it in enumerate(items):
+        if i % 3 == 0:  # one row of columns per three cards, so the order survives stacking on a phone
+            cols = st.columns(3)
+        bits = (
+            [f"#{it['reg']}"]
+            + ([f"Income {A.money(it['income'])}"] if it.get("income") else [])
+            + ([f"{it['priority']} priority"] if it.get("priority") else [])
         )
-    return pd.DataFrame(rows)
+        cols[i % 3].button(
+            f"**{it['name']}**  \n{' · '.join(bits)}", key=f"{key}_{it['reg']}", on_click=_open_charity, args=(it["reg"],), width="stretch", wrap=True
+        )
 
 
-def _open_top(regs: list[int]) -> None:
-    rows = st.session_state["top_pick"].selection.rows
-    if rows:
-        st.session_state["q"] = str(regs[rows[0]])
-
-
-def largest_charities() -> None:
-    df = top_charities(TOP_N, band)
-    st.markdown(f"#### The {TOP_N} largest charities")
-    st.caption("By total income in their latest accounts. Select a row to see the full summary, or search above.")
-    st.dataframe(
-        df.drop(columns="reg"),
-        hide_index=True,
-        width="stretch",
-        height=35 * (len(df) + 1) + 3,
-        on_select=lambda: _open_top(df["reg"].tolist()),
-        selection_mode="single-row",
-        key="top_pick",
-        column_config={
-            "Total income": st.column_config.NumberColumn(format="£%.1fm"),
-            "Total expenditure": st.column_config.NumberColumn(format="£%.1fm"),
-        },
-        alt=f"The {TOP_N} largest registered charities by total income",
-    )
+def opening_state() -> None:
+    recent = st.session_state.get("recent", [])
+    if recent:
+        st.markdown("#### Recent searches")
+        charity_cards(recent, "recent")
+    else:
+        st.markdown("#### Explore charities")
+        charity_cards(explore_cards(), "explore")
 
 
 # ---------- page 1: look up a charity (the main page) ----------
@@ -541,17 +536,17 @@ def page_lookup() -> None:
     if not need_api():
         return
     q = st.text_input(
-        "Charity name or registration number",
-        placeholder="e.g. Oxfam, or 202918",
+        "Search by charity name or registration number.",
+        placeholder="Search charities…",
         key="q",
         persist_state="session",
         icon=":material/search:",
     ).strip()
     if not q:
-        largest_charities()
+        opening_state()
         return
     if q.isdigit():
-        show_lookup(int(q), "l_")
+        show_lookup(int(q), "l_", remember=True)
         return
     try:
         with st.spinner("Searching the Charity Commission register…"):
@@ -563,20 +558,20 @@ def page_lookup() -> None:
     if not hits:
         st.warning(f"No registered charities match “{q}”. Try fewer words (e.g. *cancer research*) or the registration number.")
         return
-    hits = sorted(hits, key=lambda h: -(inc.get(h["reg_number"]) or 0))
+    hits = rank_search_hits(hits, q, inc)
     if len(hits) > 1:
-        # Show the largest match straight away (usually the one people mean); the others are one click away.
+        # Show the best match straight away; the others are one click away.
         regs = [h["reg_number"] for h in hits]
         names = {h["reg_number"]: f"{O.nice_name(h['name'])} · #{h['reg_number']} · income {A.money(inc.get(h['reg_number']))}" for h in hits}
         reg = st.selectbox(
-            f"{len(hits)} charities match “{q}”. Showing the largest. Not the right one? Pick another:",
+            f"{len(hits)} charities match “{q}”. Showing the best match. Not the right one? Pick another:",
             regs,
             format_func=names.get,
             key=f"pick_{q.lower()}",
         )
     else:
         reg = hits[0]["reg_number"]
-    show_lookup(int(reg), "l_")
+    show_lookup(int(reg), "l_", remember=True)
 
 
 # ---------- page 2: find new prospects (many charities at once) ----------

@@ -109,3 +109,12 @@ class ProspectStore:
     def update_settings(self, **fields) -> None:
         self.settings.update(fields)
         self.save()
+
+
+RECENT_LIMIT = 5
+
+
+def add_recent(recent: list[dict], entry: dict, limit: int = RECENT_LIMIT) -> list[dict]:
+    """Recently viewed charities: newest first, no duplicates (a reopened charity moves to the front), at most `limit`."""
+    reg = int(entry["reg"])
+    return ([{**entry, "reg": reg}] + [r for r in recent if int(r["reg"]) != reg])[:limit]

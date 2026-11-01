@@ -155,7 +155,7 @@ def test_plan_export_contains_everything():
         "Day 0",
         "Day 7",
         "call back",
-        "Next action: First email",
+        "Next action: Send the first email",
     ):
         assert part in md, part
     assert "Income £2.6m" in plan["summary"] and "up +30.0%" in plan["summary"]

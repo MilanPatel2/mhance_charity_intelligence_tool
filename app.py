@@ -23,7 +23,8 @@ st.set_page_config(page_title="Charity Growth Finder · mhance", page_icon=":mat
 KEY_FILE = Path(__file__).parent / "api_key.txt"
 PLACEHOLDER = "paste-your-key-here"
 MAX_LIST = 100
-OUTREACH_FILE = Path(__file__).parent / "outreach.json"  # saved prospects + your details, kept between sessions
+# Saved prospects + your details, kept between sessions. CHARITY_OUTREACH_FILE points elsewhere (e.g. for testing).
+OUTREACH_FILE = Path(os.environ.get("CHARITY_OUTREACH_FILE") or Path(__file__).parent / "outreach.json")
 
 
 # ---------- data ----------
@@ -834,6 +835,12 @@ def page_list() -> None:
 
 # ---------- outreach ----------
 CHANNEL_ICON = {"email": ":material/mail:", "call": ":material/call:", "linkedin": ":material/work:"}
+PRIORITY_BADGE = {A.HIGH: ":green-badge[High]", A.MEDIUM: ":blue-badge[Medium]", A.LOW: ":gray-badge[Low]", A.CHECK_FIRST: ":orange-badge[Check first]"}
+
+
+def fmt_day(d: date) -> str:
+    """'Mon 2 Nov', with the year when it isn't this year."""
+    return O.fmt_day(d) + (f" {d.year}" if d.year != date.today().year else "")
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -853,13 +860,45 @@ def _widget_to_store(reg: str, field: str, widget_key: str):
     STORE.update(reg, **{field: st.session_state[widget_key]})
 
 
-def _set_done(reg: str, day: int, widget_key: str):
-    STORE.set_done(reg, day, st.session_state[widget_key])
+def _mark_done(reg: str, day, done: bool = True):
+    """Tick a step. Sending the first email fixes the sequence dates from today."""
+    if day == 0 and done:
+        STORE.update(reg, start=O.working_day(date.today()))
+        st.session_state[f"start_{reg}"] = O.working_day(date.today())
+    STORE.set_done(reg, day, done)
+    STORE.update(reg, snooze_until=None)
+    st.session_state[f"done_{reg}_{day}"] = done
+
+
+def _set_done(reg: str, day, widget_key: str):
+    _mark_done(reg, day, st.session_state[widget_key])
+
+
+def _done_cb(reg: str, day):
+    _mark_done(reg, day)
+    st.session_state["_toast"] = "Done. The next step is now showing."
+
+
+def _snooze(reg: str):
+    until = O.add_working_days(date.today(), 5)
+    STORE.update(reg, snooze_until=until)
+    st.session_state["_toast"] = f"Snoozed until {fmt_day(until)}"
+
+
+def _set_outcome(reg: str, outcome: str):
+    STORE.update(reg, outcome=outcome, snooze_until=None)
+    st.session_state[f"out_{reg}"] = outcome
+    st.session_state.pop("plan_reg", None)  # open the next actionable prospect
+    st.session_state["_toast"] = f"Marked as {outcome.lower()}"
+
+
+def _select(reg: str):
+    st.session_state["plan_reg"] = reg
 
 
 def _remove(reg: str):
     STORE.remove(reg)
-    st.session_state.pop("out_table", None)
+    st.session_state.pop("plan_reg", None)
     st.session_state["_toast"] = "Removed from your prospect list"
 
 
@@ -868,256 +907,341 @@ def _reset_text(reg: str):
         del st.session_state[k]
 
 
+def timing_short(t: dict) -> str:
+    if not t.get("window"):
+        return "Timing unknown"
+    s, e = t["window"]
+    return "Planning window open (estimate)" if t["now"] else f"Suggested outreach {s:%b}–{e:%b %Y} (estimate)"
+
+
+def due_text(action: dict, today: date) -> str:
+    due = action.get("due")
+    if not due:
+        return ""
+    if action.get("snoozed"):
+        return f"Snoozed to {fmt_day(due)}"
+    if due < today:
+        return f":orange[**Overdue**, was due {fmt_day(due)}]"
+    return "**Due today**" if due == today else f"Due {fmt_day(due)}"
+
+
+def queue_row(r: dict, selected, today: date) -> None:
+    with st.container(border=True):
+        c1, c2 = st.columns([5, 1.2], vertical_alignment="center")
+        if r.get("error"):
+            c1.markdown(f"**{O.nice_name(r['name'])}**  \n:gray[Couldn't load the latest figures: {r['error']}]")
+            return
+        a = r["action"]
+        bits = [a["label"]] if a["actionable"] else [f"Outcome: {r['outcome']}"]
+        bits += [x for x in (due_text(a, today), timing_short(r["timing"]) if a["actionable"] else "") if x]
+        c1.markdown(f"{PRIORITY_BADGE.get(r['priority'], '')} **{r['name']}**  \n" + " · ".join(bits))
+        current = r["reg"] == selected
+        c2.button("Showing" if current else "Open", key=f"open_{r['reg']}", disabled=current, width="stretch", on_click=_select, args=(r["reg"],))
+
+
+def step_editor(reg: str, stp: dict, c: dict) -> None:
+    """Editable draft for one step (email, call script or LinkedIn note)."""
+    d = stp["day"]
+    if stp["channel"] == "email":
+        to = st.text_input("To", stp["to"] or "", key=f"txt_{reg}_{d}_to")
+        subj = st.text_input("Subject", stp["subject"], key=f"txt_{reg}_{d}_subj")
+        body = st.text_area("Message (draft, edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=300)
+        st.link_button("Open in my email app", O.mailto(to, subj, body), icon=":material/mail:")
+        st.caption("Or copy it: hover the box below and click the copy icon.")
+        st.code(f"Subject: {subj}\n\n{body}", language=None, wrap_lines=True)
+    elif stp["channel"] == "call":
+        notes = st.text_area("Call script (draft, edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=340)
+        if c["phone"]:
+            st.link_button(f"Call {c['phone']}", f"tel:{c['phone'].replace(' ', '')}", icon=":material/call:")
+        st.code(notes, language=None, wrap_lines=True)
+    else:
+        note = st.text_area("Connection note (draft, edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=110)
+        n = len(note)
+        (st.caption if n <= O.LINKEDIN_LIMIT else st.error)(f"{n}/{O.LINKEDIN_LIMIT} characters (LinkedIn's limit for a connection note)")
+        st.code(note, language=None, wrap_lines=True)
+        if c["linkedin_chair"]:
+            st.link_button(f"Find {c['chair']['full']} on LinkedIn", c["linkedin_chair"], icon=":material/open_in_new:")
+
+
+def research_links(c: dict) -> None:
+    st.caption(
+        f"The register lists trustees, not staff. Find the {c['buyer']}'s name before the first email "
+        f"(the buyer is usually the {c['decision_maker']}). LinkedIn searches:"
+    )
+    with st.container(horizontal=True):
+        st.link_button(c["buyer"], c["linkedin_finance"] if c["buyer"] == "Finance Director" else c["linkedin_ceo"], icon=":material/open_in_new:")
+        st.link_button(
+            "Chief Executive" if c["buyer"] == "Finance Director" else "Finance Director",
+            c["linkedin_ceo"] if c["buyer"] == "Finance Director" else c["linkedin_finance"],
+            icon=":material/open_in_new:",
+        )
+        if c["linkedin_chair"]:
+            st.link_button("Chair", c["linkedin_chair"], icon=":material/open_in_new:")
+
+
+def settings_panel(cfg: dict) -> None:
+    with st.expander("Settings: your name, Calendly link and timing rule", icon=":material/settings:"):
+        s1, s2, s3 = st.columns(3)
+        s1.text_input("Your name", cfg.get("name", ""), key="set_name", on_change=_save_settings)
+        s2.text_input("Your role", cfg.get("role", ""), key="set_role", on_change=_save_settings, placeholder="e.g. Business Development Manager")
+        s3.text_input(
+            "Calendly link", cfg.get("calendly", ""), key="set_calendly", on_change=_save_settings, placeholder="https://calendly.com/your-name/20min"
+        )
+        t1, t2 = st.columns(2)
+        t1.number_input("Budget planning starts (months before year end)", 1, 12, int(cfg["budget_start_months"]), key="set_bstart", on_change=_save_settings)
+        t2.number_input("Budget planning ends (months before year end)", 0, 11, int(cfg["budget_end_months"]), key="set_bend", on_change=_save_settings)
+        st.caption(
+            "Timing is an **estimate**: we know when each charity's financial year ends (from its accounts), not when it "
+            "actually sets its budget. Change the months above if you know better."
+        )
+
+
 # ---------- page 4: my prospects ----------
 def page_my() -> None:
-    st.markdown("### My prospects")
-    st.caption(
-        "Each saved charity gets an outreach plan: why it may be worth contacting, when to get in touch, and drafts for "
-        "4 steps (first email with your Calendly link, follow-up email, phone call, LinkedIn). Nothing is sent for you."
-    )
-    if need_api():
-        cfg = STORE.settings
-        with st.expander(
-            "Your name and Calendly link (used to sign every email)", icon=":material/edit:", expanded=not (cfg.get("name") and cfg.get("calendly"))
-        ):
-            s1, s2, s3 = st.columns(3)
-            s1.text_input("Your name", cfg.get("name", ""), key="set_name", on_change=_save_settings)
-            s2.text_input("Your role", cfg.get("role", ""), key="set_role", on_change=_save_settings, placeholder="e.g. Business Development Manager")
-            s3.text_input(
-                "Calendly link", cfg.get("calendly", ""), key="set_calendly", on_change=_save_settings, placeholder="https://calendly.com/your-name/20min"
-            )
-            t1, t2 = st.columns(2)
-            t1.number_input(
-                "Budget planning starts (months before year end)", 1, 12, int(cfg["budget_start_months"]), key="set_bstart", on_change=_save_settings
-            )
-            t2.number_input("Budget planning ends (months before year end)", 0, 11, int(cfg["budget_end_months"]), key="set_bend", on_change=_save_settings)
-            st.caption(
-                "Timing is an **estimate**: we know when each charity's financial year ends (from its accounts), not when it "
-                "actually sets its budget. Change the months above if you know better."
-            )
+    st.markdown(f"### My prospects · {len(STORE)}")
+    if not need_api():
+        return
+    cfg = STORE.settings
+    if not len(STORE):
+        st.info("**No prospects yet.** Look up a charity or use **Find new prospects**, then press **Add to prospects**. Its next action will appear here.")
+        settings_panel(cfg)
+        return
 
-        if not len(STORE):
-            st.info(
-                "**No prospects yet.** Look up a charity or use **Find new prospects**, then press **Add to prospects**. Its outreach plan will appear here."
-            )
-        else:
-            today = date.today()
-            plans, rows = {}, []
-            with st.spinner("Building plans from the latest Charity Commission figures…"):
-                for reg, item in STORE.items.items():
-                    try:
-                        rec = cached_lookup(int(reg))
-                    except (APIError, NotFound) as e:
-                        rows.append({"reg": reg, "Charity": item["name"], "Why": f"Couldn't load: {e}", "Outcome": item["outcome"]})
-                        continue
-                    s = summary_of(rec)
-                    plan = O.build_plan(rec, s, cfg, date.fromisoformat(item["start"]), today)
-                    plans[reg] = (rec, s, plan)
-                    act, due = O.next_action(item, plan)
-                    rows.append(
-                        {
-                            "reg": reg,
-                            "Priority": A.PRIORITY_LABELS[plan["priority"]["level"]],
-                            "Charity": plan["contact"]["charity"],
-                            "Why": plan["primary"]["title"],
-                            "Best time (estimate)": ("Now" if plan["timing"]["now"] else plan["timing"]["period"]),
-                            "Next action": act,
-                            "Due": due,
-                            "Outcome": item["outcome"],
-                        }
-                    )
-            table = pd.DataFrame(rows)
-            for col in ("Priority", "Best time (estimate)", "Next action", "Due", "Outcome"):
-                if col not in table:
-                    table[col] = None
-            table["Outcome"] = table["Outcome"].fillna("Active")
-            active = table[table["Outcome"] == "Active"]
-            fmt_day = lambda d: f"{d:%a} {d.day} {d:%b}"
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Saved prospects", len(table))
-            m2.metric("Active sequences", len(active))
-            m3.metric("Due today or overdue", sum(isinstance(d, date) and d <= today for d in active["Due"]))
-            m4.metric("Meetings booked", int((table["Outcome"] == "Meeting booked").sum()))
-
-            # One row per prospect with an "Open plan" button (no tick boxes).
-            if st.session_state.get("plan_reg") not in set(table["reg"]):
-                st.session_state["plan_reg"] = table.iloc[0]["reg"]
-            for row in table.to_dict("records"):
-                current = row["reg"] == st.session_state["plan_reg"]
-                due = row.get("Due") if isinstance(row.get("Due"), date) else None
-                with st.container(border=True):
-                    c1, c2 = st.columns([6, 1.4], vertical_alignment="center")
-                    when = (f" · due {fmt_day(due)}" + (" · :orange[overdue]" if due < today else "")) if due else ""
-                    c1.markdown(
-                        f"{row.get('Priority') or ''} **{row['Charity']}** · {row.get('Why') or ''}  \n"
-                        f":gray[Next: {row.get('Next action') or '–'}{when} · Outcome: {row['Outcome']} · "
-                        f"Best time (estimate): {row.get('Best time (estimate)') or '–'}]"
-                    )
-                    if c2.button("Showing below" if current else "Open plan", key=f"open_{row['reg']}", disabled=current, width="stretch"):
-                        st.session_state["plan_reg"] = row["reg"]
-                        st.rerun()
-            reg = st.session_state["plan_reg"]
-
-            export = [
+    today = date.today()
+    plans, rows = {}, []
+    with st.spinner("Building plans from the latest Charity Commission figures…"):
+        for reg, item in STORE.items.items():
+            try:
+                rec = cached_lookup(int(reg))
+            except (APIError, NotFound) as e:
+                rows.append(
+                    {
+                        "reg": reg,
+                        "name": item["name"],
+                        "priority": None,
+                        "outcome": item["outcome"],
+                        "error": str(e),
+                        "action": {"due": None, "actionable": True},
+                    }
+                )
+                continue
+            s = summary_of(rec)
+            started = any(item["done"].get(str(d)) for d, _, _ in O.STEPS)
+            plan = O.build_plan(rec, s, cfg, date.fromisoformat(item["start"]), today, early=item.get("early", False), started=started)
+            plans[reg] = (rec, s, plan)
+            rows.append(
                 {
-                    "reg_number": r,
-                    "charity": p[2]["contact"]["charity"],
-                    "priority": p[2]["priority"]["level"],
-                    "outcome": STORE.items[r]["outcome"],
-                    "day": stp["day"],
-                    "date": stp["date"],
-                    "channel": stp["channel"],
-                    "to": stp["to"],
-                    "subject": stp["subject"],
-                    "message": stp["body"],
-                    "done": STORE.items[r]["done"].get(str(stp["day"]), False),
+                    "reg": reg,
+                    "name": plan["contact"]["charity"],
+                    "priority": plan["priority"]["level"],
+                    "outcome": item["outcome"],
+                    "action": O.next_action(item, plan),
+                    "in_window": plan["timing"]["now"],
+                    "timing": plan["timing"],
                 }
-                for r, p in plans.items()
-                for stp in p[2]["steps"]
-            ]
-            st.download_button(
-                "Download all plans as a spreadsheet (CSV)",
-                pd.DataFrame(export).to_csv(index=False),
-                "outreach_sequences.csv",
-                "text/csv",
-                icon=":material/download:",
+            )
+    rows = O.order_queue(rows, today)
+    active = sum(STORE.items[r["reg"]]["outcome"] == "Active" for r in rows)
+    meetings = sum(STORE.items[r["reg"]]["outcome"] == "Meeting booked" for r in rows)
+    due_n = sum(r["group"] in (O.OVERDUE, O.DUE_TODAY) for r in rows)
+    st.caption(
+        f"Actions due: **{due_n}** · Active sequences: **{active}** · Meetings booked: **{meetings}** · "
+        "Nothing is sent for you: every message is a draft you send yourself."
+    )
+
+    if st.session_state.get("plan_reg") not in plans:
+        st.session_state["plan_reg"] = O.default_selection([r for r in rows if r["reg"] in plans])
+    sel = st.session_state["plan_reg"]
+
+    st.markdown("#### Your next actions")
+    todo = [r for r in rows if r["group"] != O.NO_ACTION]
+    if not todo:
+        st.info("Nothing needs doing right now. Prospects that replied, were stopped or paused are under **No action needed**.")
+    for r in todo:
+        queue_row(r, sel, today)
+    rest = [r for r in rows if r["group"] == O.NO_ACTION]
+    if rest:
+        with st.expander(f"No action needed ({len(rest)})"):
+            for r in rest:
+                queue_row(r, sel, today)
+
+    if sel in plans:
+        gtm_brief(sel, *plans[sel], next(r["action"] for r in rows if r["reg"] == sel), cfg, today)
+
+    st.divider()
+    export = [
+        {
+            "reg_number": r,
+            "charity": p[2]["contact"]["charity"],
+            "priority": p[2]["priority"]["level"],
+            "outcome": STORE.items[r]["outcome"],
+            "day": stp["day"],
+            "date": stp["date"],
+            "channel": stp["channel"],
+            "to": stp["to"],
+            "subject": stp["subject"],
+            "message": stp["body"],
+            "done": STORE.items[r]["done"].get(str(stp["day"]), False),
+        }
+        for r, p in plans.items()
+        for stp in p[2]["steps"]
+    ]
+    st.download_button(
+        "Download all plans (CSV)",
+        pd.DataFrame(export).to_csv(index=False),
+        "outreach_sequences.csv",
+        "text/csv",
+        icon=":material/download:",
+        on_click="ignore",
+    )
+    settings_panel(cfg)
+
+
+def gtm_brief(reg: str, rec: dict, s: dict, plan: dict, act: dict, cfg: dict, today: date) -> None:
+    """The selected prospect: why this account, why now, who, and the one next action."""
+    item = STORE.items[reg]
+    c, pr = plan["contact"], plan["priority"]
+    st.markdown("")
+    with st.container(border=True):
+        st.subheader(c["charity"], anchor=False)
+        st.markdown(f"{PRIORITY_BADGE[pr['level']]} priority · {item['outcome']} · Charity #{reg}")
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown("**Why this account**")
+            st.markdown("\n".join(f"- {x}" for x in O.account_reasons(plan)))
+            head, caveat = O.why_now(plan)
+            st.markdown("**Why now**")
+            st.markdown(f"{head}  \n:gray[{caveat}]")
+        with right:
+            st.markdown("**Who**")
+            lines = [f"Aim for the **{c['buyer']}**."]
+            if c["email"]:
+                lines.append(f"Email: [{c['email']}](mailto:{c['email']}) · the draft greets {c['to']['who']}")
+            if c["phone"]:
+                lines.append(f"Phone: [{c['phone']}](tel:{c['phone'].replace(' ', '')})")
+            if not (c["email"] or c["phone"]):
+                lines.append("No email or phone published on the register. Try the website or LinkedIn.")
+            st.markdown("  \n".join(lines))
+            st.caption(
+                "Contact details are as published on the Charity Commission register."
+                + (f" {c['chair']['full']} chairs the board: a trustee, not a confirmed buyer." if c["chair"] else "")
             )
 
-            if reg in plans:
-                rec, s, plan = plans[reg]
-                item = STORE.items[reg]
-                c, pr, tm = plan["contact"], plan["priority"], plan["timing"]
-                st.divider()
-                h1, h2, h3, h4 = st.columns([3, 1.3, 1.3, 1])
-                h1.subheader(f"{c['charity']}  ·  #{reg}")
-                h2.selectbox(
-                    "Outcome",
-                    OUTCOMES,
-                    index=OUTCOMES.index(item["outcome"]),
-                    key=f"out_{reg}",
-                    on_change=_widget_to_store,
-                    args=(reg, "outcome", f"out_{reg}"),
-                )
-                h3.date_input(
-                    "Sequence starts",
-                    date.fromisoformat(item["start"]),
-                    key=f"start_{reg}",
-                    on_change=_widget_to_store,
-                    args=(reg, "start", f"start_{reg}"),
-                    format="DD/MM/YYYY",
-                )
-                h4.write("")
-                h4.button("Remove", icon=":material/delete:", key=f"rm_{reg}", on_click=_remove, args=(reg,), width="stretch")
+        # The one current action
+        with st.container(border=True):
+            st.markdown("**Next**")
+            if act["actionable"]:
+                st.markdown(f"#### {act['label']}")
+                due = due_text(act, today)
+                st.markdown(due or "No due date")
+                if act["note"]:
+                    st.caption(act["note"])
+                with st.container(horizontal=True):
+                    if act["day"] is not None:
+                        st.button("Done", icon=":material/check:", type="primary", key=f"done_btn_{reg}", on_click=_done_cb, args=(reg, act["day"]))
+                    st.button("Snooze a week", icon=":material/snooze:", key=f"snooze_{reg}", on_click=_snooze, args=(reg,))
+                    st.button("Not relevant", icon=":material/block:", key=f"nr_{reg}", on_click=_set_outcome, args=(reg, "Not relevant"))
+            else:
+                st.markdown(f"No action needed: **{item['outcome']}**.")
+                st.button("Reopen the sequence", icon=":material/replay:", key=f"reopen_{reg}", on_click=_set_outcome, args=(reg, "Active"))
 
-                act, due = O.next_action(item, plan)
-                st.markdown(f"**Next action:** {act}" + (f" · due **{fmt_day(due)}**" if due else "") + (" · :orange[overdue]" if due and due < today else ""))
-                if item["outcome"] != "Active":
-                    st.info(f"Sequence stopped: **{item['outcome']}**. Set the outcome back to Active to carry on.")
+        facts, est = O.provenance(s)
+        st.caption(f"{facts}  \n{est}")
 
-                p1, p2 = st.columns([1.1, 1])
-                with p1:
-                    st.markdown(f"**Why this charity may be worth contacting:** {A.PRIORITY_LABELS[pr['level']]} priority")
-                    for r in pr["reasons"]:
-                        st.markdown(f"- {r}")
-                    st.markdown("**Financial direction** (from the accounts)")
-                    st.write(plan["summary"])
-                with p2:
-                    st.markdown("**Facts the email opens with** (from the accounts)")
-                    for hk in plan["hooks"]:
-                        if hk["key"] == "fallback":
-                            continue
-                        used = "email 1" if hk is plan["primary"] else "email 2" if hk is plan["secondary"] else "call only" if not hk["email_safe"] else "call"
-                        st.markdown(f"- **{hk['title']}** ({used}): {hk['fact']}")
-                    if plan["primary"]["key"] == "fallback":
-                        st.caption("No strong signal in the filings, so the email uses a general opener about size and sector.")
-                    st.markdown("**Suggested time to get in touch** (estimate)")
-                    (st.success if tm["now"] else st.info)(f"{tm['text']}  \n**Recommended outreach period:** {tm['period']}.  \n{tm['guidance']}")
+    if not (cfg.get("name") and cfg.get("calendly")):
+        st.warning("Add your name and Calendly link in **Settings** at the bottom of this page so the drafts are ready to send.", icon=":material/edit:")
 
-                k1, k2 = st.columns(2)
-                with k1:
-                    st.markdown("**Who to contact**")
-                    st.markdown(f"Email to: **{c['to']['who']}**")
-                    links = []
-                    if c["email"]:
-                        links.append(f"Email: [{c['email']}](mailto:{c['email']})")
-                    if c["phone"]:
-                        links.append(f"Phone: [{c['phone']}](tel:{c['phone'].replace(' ', '')})")
-                    if c["website"]:
-                        site = c["website"] if c["website"].startswith("http") else f"https://{c['website']}"
-                        links.append(f"Website: [{c['website']}]({site})")
-                    st.markdown("  \n".join(links) or "No contact details published.")
-                with k2:
-                    st.markdown("**Find the decision-maker**")
-                    st.caption(f"The register lists trustees, not staff. The buyer is usually the {c['decision_maker']}.")
-                    l1, l2, l3 = st.columns(3)
-                    l1.link_button("CEO ↗", c["linkedin_ceo"], width="stretch", help="LinkedIn search")
-                    l2.link_button("Finance ↗", c["linkedin_finance"], width="stretch", help="LinkedIn search")
-                    if c["linkedin_chair"]:
-                        l3.link_button("Chair ↗", c["linkedin_chair"], width="stretch", help="LinkedIn search")
+    # Details on demand
+    steps = {x["day"]: x for x in plan["steps"]}
+    if act["day"] == O.PREP:
+        with st.expander(f"How to find the {c['buyer']}", icon=":material/person_search:"):
+            research_links(c)
+    elif act["day"] in steps:
+        stp = steps[act["day"]]
+        kind = {"email": "email", "call": "call script", "linkedin": "LinkedIn note"}[stp["channel"]]
+        with st.expander(f"View or edit the current {kind} (draft)", icon=CHANNEL_ICON[stp["channel"]]):
+            step_editor(reg, stp, c)
 
-                st.text_area(
-                    "Notes (saved)",
-                    item.get("notes", ""),
-                    key=f"notes_{reg}",
-                    height=80,
-                    placeholder="e.g. Spoke to reception, CEO is Sarah Jones, call back Thursday",
-                    on_change=_widget_to_store,
-                    args=(reg, "notes", f"notes_{reg}"),
-                )
+    with st.expander("Why we prioritised this account", icon=":material/insights:"):
+        st.markdown(f"**{A.PRIORITY_LABELS[pr['level']]} priority** (calculated from the accounts)")
+        st.markdown("\n".join(f"- {r}" for r in pr["reasons"]))
+        st.markdown("**Financial direction** (reported figures)")
+        st.write(plan["summary"])
+        st.markdown("**Facts the drafts use** (from the accounts)")
+        for hk in plan["hooks"]:
+            if hk["key"] != "fallback":
+                used = "email 1" if hk is plan["primary"] else "email 2" if hk is plan["secondary"] else "call only" if not hk["email_safe"] else "call"
+                st.markdown(f"- **{hk['title']}** ({used}): {hk['fact']}")
+        if plan["primary"]["key"] == "fallback":
+            st.caption("No strong signal in the filings, so the email uses a general opener about size and sector.")
+        tm = plan["timing"]
+        st.markdown("**Timing** (estimate)")
+        st.caption(f"{tm['text']} {tm['guidance']}".strip())
 
-                tcol1, tcol2, tcol3 = st.columns([3, 1.2, 1.2])
-                tcol1.markdown("**Drafts for you to edit**: tick each step when done")
-                tcol2.download_button(
-                    "Download this plan",
-                    O.plan_markdown(rec, s, plan, item),
-                    f"outreach_plan_{reg}.md",
-                    "text/markdown",
-                    icon=":material/download:",
-                    width="stretch",
-                    on_click="ignore",
-                )
-                tcol3.button(
-                    "Regenerate drafts",
-                    key=f"regen_{reg}",
-                    on_click=_reset_text,
-                    args=(reg,),
-                    help="Throw away your edits and rebuild the messages (e.g. after changing your details).",
-                    width="stretch",
-                )
-                if not (cfg.get("name") and cfg.get("calendly")):
-                    st.warning("Add your name and Calendly link in **Your name and Calendly link** above so the drafts are ready to send.")
-                first_open = next((x["day"] for x in plan["steps"] if not item["done"].get(str(x["day"]))), -1)
-                for stp in plan["steps"]:
-                    d = stp["day"]
-                    done = item["done"].get(str(d), False)
-                    late = (not done) and stp["date"] < today and item["outcome"] == "Active"
-                    label = f"{':material/check_circle:' if done else CHANNEL_ICON[stp['channel']]}  Day {d} · {fmt_day(stp['date'])} · {stp['title']}" + (
-                        " · :orange[overdue]" if late else ""
-                    )
-                    with st.expander(label, expanded=not done and item["outcome"] == "Active" and d == first_open):
-                        st.checkbox("Done", value=done, key=f"done_{reg}_{d}", on_change=_set_done, args=(reg, d, f"done_{reg}_{d}"))
-                        if stp["channel"] == "email":
-                            to = st.text_input("To", stp["to"] or "", key=f"txt_{reg}_{d}_to")
-                            subj = st.text_input("Subject", stp["subject"], key=f"txt_{reg}_{d}_subj")
-                            body = st.text_area("Message (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=330)
-                            b1, _ = st.columns([1, 3])
-                            b1.link_button("Open in my email app", O.mailto(to, subj, body), icon=":material/mail:", width="stretch")
-                            st.caption("Or copy it: hover the box below and click the copy icon.")
-                            st.code(f"Subject: {subj}\n\n{body}", language=None, wrap_lines=True)
-                        elif stp["channel"] == "call":
-                            notes = st.text_area("Call script (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=380)
-                            if c["phone"]:
-                                st.link_button(f"Call {c['phone']}", f"tel:{c['phone'].replace(' ', '')}", icon=":material/call:")
-                            st.code(notes, language=None, wrap_lines=True)
-                        else:
-                            note = st.text_area("Connection note (edit freely)", stp["body"], key=f"txt_{reg}_{d}_body", height=110)
-                            n = len(note)
-                            (st.caption if n <= O.LINKEDIN_LIMIT else st.error)(f"{n}/{O.LINKEDIN_LIMIT} characters (LinkedIn's limit for a connection note)")
-                            st.code(note, language=None, wrap_lines=True)
-                            l1, l2 = st.columns(2)
-                            if c["linkedin_chair"]:
-                                l1.link_button(f"Find {c['chair']['full']} on LinkedIn ↗", c["linkedin_chair"], width="stretch")
-                            l2.link_button("Find their chief executive ↗", c["linkedin_ceo"], width="stretch")
+    later = [x for x in plan["steps"] if x["day"] != act["day"]]
+    with st.expander(f"Later outreach steps ({len(later)})", icon=":material/format_list_numbered:"):
+        st.caption("Drafts for you to edit. Tick each step when you've done it.")
+        tabs = st.tabs(
+            [f"Day {x['day']} · {x['title']}" + (" (done)" if item["done"].get(str(x["day"])) else "") for x in later], key=f"steps_{reg}_{act['day']}"
+        )
+        for tab, stp in zip(tabs, later, strict=True):
+            with tab:
+                d = stp["day"]
+                st.caption(f"Planned for {fmt_day(stp['date'])}")
+                st.checkbox("Done", value=item["done"].get(str(d), False), key=f"done_{reg}_{d}", on_change=_set_done, args=(reg, d, f"done_{reg}_{d}"))
+                step_editor(reg, stp, c)
+
+    with st.expander("Activity and notes", icon=":material/edit_note:"):
+        a1, a2 = st.columns(2)
+        a1.selectbox(
+            "Outcome", OUTCOMES, index=OUTCOMES.index(item["outcome"]), key=f"out_{reg}", on_change=_widget_to_store, args=(reg, "outcome", f"out_{reg}")
+        )
+        a2.date_input(
+            "Earliest first contact",
+            date.fromisoformat(item["start"]),
+            key=f"start_{reg}",
+            on_change=_widget_to_store,
+            args=(reg, "start", f"start_{reg}"),
+            format="DD/MM/YYYY",
+            help="The first email is never planned before this date.",
+        )
+        w = plan["timing"].get("window")
+        if w and not plan["timing"]["now"] and not any(item["done"].get(str(d)) for d, _, _ in O.STEPS):
+            st.toggle(
+                f"Contact before the estimated planning window ({w[0]:%B %Y}): early relationship-building",
+                value=bool(item.get("early")),
+                key=f"early_{reg}",
+                on_change=_widget_to_store,
+                args=(reg, "early", f"early_{reg}"),
+            )
+        st.text_area(
+            "Notes (saved)",
+            item.get("notes", ""),
+            key=f"notes_{reg}",
+            height=80,
+            placeholder="e.g. Spoke to reception, CEO is Sarah Jones, call back Thursday",
+            on_change=_widget_to_store,
+            args=(reg, "notes", f"notes_{reg}"),
+        )
+
+    with st.expander("More actions", icon=":material/more_horiz:"), st.container(horizontal=True):
+        st.download_button(
+            "Download this plan",
+            O.plan_markdown(rec, s, plan, item),
+            f"outreach_plan_{reg}.md",
+            "text/markdown",
+            icon=":material/download:",
+            on_click="ignore",
+        )
+        st.button(
+            "Regenerate drafts",
+            key=f"regen_{reg}",
+            on_click=_reset_text,
+            args=(reg,),
+            icon=":material/refresh:",
+            help="Throw away your edits and rebuild the messages (e.g. after changing your details).",
+        )
+        st.button("Remove prospect", icon=":material/delete:", key=f"rm_{reg}", on_click=_remove, args=(reg,))
 
 
 # ---------- pages ----------

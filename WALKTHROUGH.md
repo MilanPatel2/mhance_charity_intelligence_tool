@@ -1,6 +1,6 @@
 # Walkthrough outline (10–15 minutes)
 
-Before recording: run `streamlit run app.py`, open **My prospects** and fill in *Your name and Calendly link* (and your role). Remove any test prospects so the list starts clean.
+Before recording: run `streamlit run app.py`, open **My prospects** and fill in *Settings* at the bottom (your name, role and Calendly link). Remove any test prospects so the list starts clean.
 
 ## 1. The business problem (1 min)
 mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks charities one by one on the Charity Commission site to work out who is growing, then writes outreach from scratch. That's slow, inconsistent, and the research and the outreach are disconnected. This tool makes it one flow: **search → understand → save → outreach plan → copy/export.**
@@ -22,11 +22,11 @@ mhance sells Microsoft Dynamics 365 to UK charities. Sales currently checks char
 - **Find new prospects:** filter **Area = Ealing**, **Priority = High**. Press **Add** on two charities (or **Add all on this page**). This is building a call list in seconds.
 
 ## 5. Hook, email and timing plan (2–3 min)
-- **My prospects:** a list with priority, best time (estimate), next action and due date. Press **Open plan** on Nacro.
-- **Facts the email opens with:** strong growth (email 1), government contracts are now almost all of their income (email 2), 873 staff (call).
-- **Day 0 email:** addressed to "Dear Anna" because the published inbox is anna.barker@. It states facts from the filings and uses "can/may" for what they might mean, then your Calendly link. Show **Open in my email app** and the copy box.
-- **Timing:** *Estimate:* their year ends 31 March, so they may be planning next year's budget now (window Sep–Jan). The rule is configurable and labelled as an estimate.
-- Briefly show Day 3, the Day 5 call script and the Day 7 LinkedIn note, tick **Done**, then **Download this plan**.
+- **My prospects:** *Your next actions*, ordered overdue → due today → inside the estimated window → later. Replied or stopped prospects sit under *No action needed*. The first actionable prospect opens by itself.
+- **The brief (five seconds):** *Why this account* (Nacro's growth, inside the £1m–£100m fit range), *Why now* ("Possible budget-planning window is open now", labelled an estimate, not confirmed intent), *Who* (aim for the Finance Director; published inbox and phone; the chair is a trustee, not a confirmed buyer), *Next* ("Send the first email", with **Done / Snooze a week / Not relevant**). The source line underneath separates reported, calculated and estimated.
+- Open **View or edit the current email**: "Dear Anna" because the published inbox is anna.barker@. Facts from the filings, "can/may" for what they might mean, your Calendly link. Show **Open in my email app** and the copy box.
+- Open a prospect whose window is months away (e.g. a 31 August year end): the action is **Research the Finance Director**, and the first email is planned for when the window opens. Mention the *early relationship-building* switch.
+- Press **Done**: the follow-up becomes the current action. Point out the collapsed sections: why we prioritised it, later steps, activity and notes, more actions (download, regenerate, remove), and Settings at the bottom.
 
 ## 6. Technical and design choices (1–2 min)
 - Streamlit for speed and a real UI for non-technical users.

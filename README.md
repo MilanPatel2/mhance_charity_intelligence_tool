@@ -11,7 +11,7 @@
 | **Look up a charity** (main page) | Before searching, the page lists the 25 largest charities by total income (select a row to open one). Search by name or registration number. A name search shows the largest match straight away, with a "pick another" list. The summary answers the core questions in order, with no tabs or pop-ups: name and number, total income / expenditure for 3 years with labelled trends (% **and** £ change), net surplus / deficit, why it may or may not be worth contacting, trustees, and one **Add to prospects** button. Chart, peer comparison, contact details, links and a CSV of every year on record (up to 5, the most the Charity Commission publishes, with the income breakdown where filed) sit below under *More detail*. | Live API |
 | **Find new prospects** | Filter all ~172,000 registered charities. **Minimum income** is the first filter (default £100k or more; choose *Any* to include small charities). The page says how many charities each option leaves out. Maximum income is under *More filters*. Then area, sector, priority, trend. Sort by priority, size, £ growth or % growth. **View details** and **Add** on each row; export to CSV. | Daily bulk extract |
 | **Check a list** | Paste up to 100 charity numbers (e.g. from a CRM export) and trend-check them all live. | Live API |
-| **My prospects** | Saved prospects with priority, best time (estimate), next action and due date. Open one for the full plan: financial summary, priority reasons, evidence, timing, who to contact, notes, and the Day 0 / 3 / 5 / 7 sequence. Copy, open in email, download the plan or export everything to CSV. | Live API |
+| **My prospects** | An action queue, **Your next actions**: overdue first, then due today, then inside the estimated planning window, then later. Replied, stopped or paused prospects are folded into **No action needed**. The selected prospect shows a short brief (**Why this account · Why now · Who · Next**) with one main action and Done / Snooze / Not relevant buttons. The source line separates reported, calculated and estimated information. Drafts, later steps, scoring detail, notes, downloads and settings are one click away in collapsed sections. | Live API |
 | **Settings** | Data status, the up/down and hot-prospect rules (adjustable), and what every figure and label means. There is no sidebar. | – |
 
 ---
@@ -29,12 +29,16 @@ streamlit run app.py              # opens http://localhost:8501
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 43 tests
+python -m pytest            # 55 tests
 ruff check . && ruff format --check .
 python build_dataset.py --download --src bulk   # refresh the bulk snapshot (~2GB temp download)
 ```
 
-**Deploy (optional):** push to GitHub, create an app on Streamlit Community Cloud pointing at `app.py`, add `CHARITY_API_KEY` under *Secrets*.
+**Deploy (public):** push to GitHub, create an app on Streamlit Community Cloud pointing at `app.py`, and add `CHARITY_API_KEY` under *Secrets*. Requirements:
+- Python 3.10+ and `requirements.txt` (Streamlit **1.65+**; the app uses top navigation, badges and widget state that survives page switches).
+- `data/charities.parquet` and `data/financials.parquet` must be in the repo (or rebuilt with `build_dataset.py`) for *Find new prospects* and the largest-charities list.
+- **Saved prospects are a local JSON file.** On Streamlit Cloud every visitor shares the same list and it resets when the app restarts. That's fine for a demo; production would store prospects in Dynamics 365. Set `CHARITY_OUTREACH_FILE` to use a different file (e.g. a test list).
+- After a push that changes `analysis.py` or `outreach.py` but not `app.py`, use *Manage app → Reboot* if you see an error about a missing name: Streamlit Cloud can keep the old module loaded.
 
 ---
 
@@ -126,8 +130,11 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Evidence and hook.** Hooks fire only from figures in the filings: strong growth; government contracts as 30%+ of income or up 20%+; trading income up 25% and £100k+; a new chair (18 months) or 2+ new trustees (12 months); 50+ staff or 200+ volunteers. "Costs outpacing income" is used in the call script only, as it's too sensitive for a cold email. The strongest hook opens email 1 and the second strongest opens the day-3 follow-up. With no signal, a neutral size/sector opener is used and labelled as such.
 - **Careful wording.** Emails say what the data shows, then use "can", "may" or "often" for what that might mean. They never claim problems, technology, budgets, buying intent or named staff that the data doesn't contain. A test bans phrases like "usually means" and "your systems are".
 - **Recipient.** A named published address (anna.barker@) gets "Dear Anna"; a generic one (info@) is addressed to the chair from the trustee list; otherwise "Dear Trustees". The register lists trustees, not staff, so the plan links to LinkedIn *searches* for the CEO, finance director and chair rather than scraping personal details (GDPR/PECR).
-- **Timing is an estimate.** Charities usually plan next year's budget a few months before their year end. We know the year end from filings, not the actual budget cycle, so the plan says **"Estimate"** and shows the rule: by default the window is **6 to 2 months before year end**, configurable in *Your name and Calendly link*. Output: whether now is inside the window, the recommended outreach period, and guidance to have a first conversation before the window closes.
-- **Sequence.** Day 0 email (hook + mhance + Calendly) → Day 3 follow-up (second angle) → Day 5 call script (questions, voicemail) → Day 7 LinkedIn note (≤300 chars). Days are **working days**. Each step has a Done tick box; Outcome (Active, Replied, Meeting booked, Not interested, Paused) stops the sequence; Next action and due date update automatically.
+- **Timing is an estimate.** Charities usually plan next year's budget a few months before their year end. We know the year end from filings, not the actual budget cycle, so the plan says **"Estimate"** and shows the rule: by default the window is **6 to 2 months before year end**, configurable under *Settings* on My prospects. The brief calls it a **"possible" planning window** and says it is a hypothesis, not confirmed buying intent.
+- **Sequence.** Day 0 email (hook + mhance + Calendly) → Day 3 follow-up (second angle) → Day 5 call script (questions, voicemail) → Day 7 LinkedIn note (≤300 chars). Days are **working days**. Outcome (Active, Replied, Meeting booked, Not interested, Not relevant, Paused) stops the sequence.
+- **Dates never contradict the timing estimate.** If the estimated window hasn't opened, the first email is planned for the first working day of the window. Until then the current action is **"Research the Finance Director"** (or Chief Executive for charities under £1m), due two weeks before. To contact sooner, switch on *early relationship-building* (under *Activity and notes*); the action is then labelled as early relationship-building, not a sales approach. Once the first email is marked done, the later steps are dated from that day, so a live sequence never jumps to next year's window.
+- **Action queue (deterministic, tested).** Groups: 1 overdue, 2 due today, 3 inside the estimated window, 4 later, 5 no action needed. Within a group: earliest due date, then High > Medium > Low > Check first, then name. The prospect opened by default is the first actionable one that isn't Low priority (otherwise the first actionable one); a replied or stopped record never opens automatically. **Snooze** pushes the current action back one working week; **Not relevant** moves the prospect to *No action needed* and opens the next one.
+- **Likely buyer.** The brief names one role to aim for: Finance Director (income £1m+) or Chief Executive (smaller charities). Contact routes shown are only those published on the register. The chair is named as a trustee, never as a confirmed buyer.
 - **Copy and export.** Each draft can be edited, opened in your email app, or copied from a copy box. "Download this plan" gives a Markdown file with everything; "Download every prospect's sequence" gives a CSV for mail merge or CRM import.
 
 ---
@@ -138,7 +145,7 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 - **Name search no longer needs a pop-up.** The largest match is shown straight away (usually the one people mean), with a "Not the right one? Pick another" list above it.
 - **Settings survive page switches** (search box, filters, small-charity threshold), so moving between pages never loses your place.
 
-- **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open plan** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
+- **Buttons, not tick boxes.** Search results, prospect lists and saved prospects are lists with **View details**, **Add** and **Open** buttons. The first version needed a tick box to open a charity, which users found unintuitive.
 - **Saving always shows up straight away.** Closing the charity pop-up refreshes the page (`on_dismiss="rerun"`). Previously a prospect saved inside the pop-up only appeared after some other click, so saving looked like it "only worked sometimes".
 - **Plain language.** "Look up a charity", "Add to prospects", "My prospects", "similar charities", "vs year before", "Suggested time to get in touch". No API, cache or YoY jargon in the interface.
 - **Facts vs estimates vs drafts are marked.** Headings say which is which: "(from the accounts)", "(estimate)", "Drafts for you to edit".
@@ -186,13 +193,13 @@ The reasons also state whether latest income falls in the £1m–£100m range as
 ## Files
 
 ```
-app.py               Streamlit UI (4 pages)
+app.py               Streamlit UI (5 pages)
 analysis.py          Financial rules: ordering, % change, status, up/flat/down, vs peers, hot, gaps, priority
-outreach.py          Hooks, evidence, recipient, estimated timing, sequence, plan export
+outreach.py          Hooks, evidence, recipient, estimated timing, scheduling, action queue, sequence, plan export
 prospects.py         Saved prospects + settings (outreach.json), dedupe, persistence
 data_sources.py      Charity Commission API client (cached, normalised) + bulk Snapshot
 build_dataset.py     Bulk extract -> data/*.parquet
-tests/               39 pytest tests
+tests/               55 pytest tests
 WALKTHROUGH.md       10–15 minute demo outline
 pyproject.toml       ruff + pytest config
 ```

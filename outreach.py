@@ -23,6 +23,19 @@ SEQUENCE (days are working days after day 0, so weekends are skipped and steps n
   Day 3  Email 2: short follow-up with a second angle + Calendly
   Day 5  Phone call: script, discovery questions, voicemail
   Day 7  LinkedIn: connection note (under LinkedIn's 300-character limit)
+
+SCHEDULING (so dates never contradict the timing estimate)
+  Day 0 is the saved start date, unless the estimated planning window hasn't opened yet:
+  then day 0 moves to the first working day of the window, and the current action until then
+  is "Research the <buyer>" (due two weeks before). The salesperson can choose "early
+  relationship-building" to contact sooner; the plan then says so. Once the first email is
+  sent, dates are fixed from the day it went, so a later window can't move a live sequence.
+
+ACTION QUEUE (My prospects, deterministic)
+  1 overdue  2 due today  3 inside the estimated window  4 later  5 no action needed
+  (replied, meeting booked, not interested, not relevant, paused). Within a group: earliest
+  due date, then High > Medium > Low > Check first, then name. The first prospect opened is
+  the first actionable one that isn't Low priority (else the first actionable one).
 """
 
 from __future__ import annotations
@@ -439,6 +452,8 @@ def contact(rec: dict) -> dict:
         "phone": p.get("Phone"),
         "website": p.get("Website"),
         "decision_maker": ("CEO, Finance Director or Head of Operations" if income >= 1e6 else "chair or CEO (smaller charities often decide at board level)"),
+        # The single role to aim for first: finance usually owns a Dynamics 365 decision; small charities decide at the top.
+        "buyer": "Finance Director" if income >= 1e6 else "Chief Executive",
         "linkedin_chair": li(f"{chair['full']} {charity}") if chair else None,
         "linkedin_ceo": li(f"{charity} chief executive"),
         "linkedin_finance": li(f"{charity} finance director"),
@@ -446,7 +461,25 @@ def contact(rec: dict) -> dict:
 
 
 # ---------- sequence ----------
-def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | None = None) -> dict:
+def schedule(start: date, timing: dict, early: bool = False, started: bool = False) -> dict:
+    """When the sequence's day 0 (first email) falls. See SCHEDULING in the module docstring."""
+    start = working_day(start)
+    w = timing.get("window")
+    upcoming = bool(w) and not timing.get("now")
+    if started or not upcoming or early or working_day(w[0]) <= start:
+        first = start
+    else:
+        first = working_day(w[0])
+    waiting = first > start
+    return {
+        "first": first,
+        "waiting": waiting,  # first email held back until the estimated window opens
+        "prep_due": max(start, working_day(first - timedelta(days=14))) if waiting else None,
+        "early": bool(early and upcoming and not started and working_day(w[0]) > start),  # contacting before the window, on purpose
+    }
+
+
+def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | None = None, early: bool = False, started: bool = False) -> dict:
     today = today or date.today()
     hooks = find_hooks(rec, s, today)
     safe = [h for h in hooks if h["email_safe"]]
@@ -458,7 +491,8 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
     role = settings.get("role") or "[Your role]"
     cal = settings.get("calendly") or "[your Calendly link]"
     sig = f"{me}\n{role}, mhance"
-    dates = {d: add_working_days(start, d) for d, _, _ in STEPS}
+    sched = schedule(start, timing, early, started)
+    dates = {d: add_working_days(sched["first"], d) for d, _, _ in STEPS}
 
     email1 = (
         f"{c['salutation']},\n\n"
@@ -519,6 +553,7 @@ def build_plan(rec: dict, s: dict, settings: dict, start: date, today: date | No
         "secondary": h2,
         "contact": c,
         "timing": timing,
+        "schedule": sched,
         "steps": steps,
         "summary": financial_summary(s),
         "priority": A.priority(s),
@@ -548,14 +583,113 @@ def financial_summary(s: dict) -> str:
     return text + "."
 
 
-def next_action(item: dict, plan: dict) -> tuple[str, date | None]:
-    """The first unfinished step of an active sequence."""
-    if item.get("outcome", "Active") != "Active":
-        return f"No action: {item['outcome'].lower()}", None
-    for stp in plan["steps"]:
-        if not item.get("done", {}).get(str(stp["day"])):
-            return f"{stp['title']} (day {stp['day']})", stp["date"]
-    return "Sequence complete: decide next step", None
+STEP_ACTIONS = {0: "Send the first email", 3: "Send the follow-up email", 5: "Make the follow-up call", 7: "Connect on LinkedIn"}
+PREP = "prep"  # key in item["done"] for the research step
+
+
+def fmt_day(d: date) -> str:
+    return f"{d:%a} {d.day} {d:%b}"
+
+
+def next_action(item: dict, plan: dict) -> dict:
+    """The one current action for a saved prospect.
+    Returns {label, due, day, channel, actionable, note, snoozed}. day is a step day, PREP, or None."""
+    out = item.get("outcome", "Active")
+    act = {"label": "", "due": None, "day": None, "channel": None, "actionable": True, "note": "", "snoozed": False}
+    if out != "Active":
+        return {**act, "label": f"No action needed: {out.lower()}", "actionable": False}
+    done, sched = item.get("done", {}), plan["schedule"]
+    nxt = next((x for x in plan["steps"] if not done.get(str(x["day"]))), None)
+    if nxt is None:
+        act |= {"label": "No reply yet: set the outcome or plan a later follow-up", "due": add_working_days(plan["steps"][-1]["date"], 5)}
+    elif nxt["day"] == 0 and sched["waiting"] and not done.get(PREP):
+        act |= {
+            "label": f"Research the {plan['contact']['buyer']}",
+            "due": sched["prep_due"],
+            "day": PREP,
+            "channel": "research",
+            "note": f"First email planned for {fmt_day(sched['first'])} {sched['first'].year}, when the estimated planning window opens.",
+        }
+    else:
+        act |= {"label": STEP_ACTIONS[nxt["day"]], "due": nxt["date"], "day": nxt["day"], "channel": nxt["channel"]}
+        if nxt["day"] == 0 and sched["early"]:
+            act["note"] = (
+                f"Early relationship-building: this is before the estimated planning window "
+                f"({plan['timing']['window'][0]:%B %Y}), so aim to start a conversation, not to sell."
+            )
+    snooze = item.get("snooze_until")
+    if snooze and act["due"] and date.fromisoformat(str(snooze)[:10]) > act["due"]:
+        act["due"], act["snoozed"] = date.fromisoformat(str(snooze)[:10]), True
+    return act
+
+
+# ---------- the action queue on My prospects ----------
+OVERDUE, DUE_TODAY, IN_WINDOW, LATER, NO_ACTION = range(5)
+GROUP_LABELS = {OVERDUE: "Overdue", DUE_TODAY: "Due today", IN_WINDOW: "Planning window open", LATER: "Later", NO_ACTION: "No action needed"}
+PRIORITY_RANK = {A.HIGH: 0, A.MEDIUM: 1, A.LOW: 2, A.CHECK_FIRST: 3}
+
+
+def queue_group(action: dict, in_window: bool, today: date) -> int:
+    if not action.get("actionable", True):
+        return NO_ACTION
+    due = action.get("due")
+    if due and due < today:
+        return OVERDUE
+    if due == today:
+        return DUE_TODAY
+    return IN_WINDOW if in_window else LATER
+
+
+def order_queue(rows: list[dict], today: date) -> list[dict]:
+    """rows: [{reg, name, priority, action, in_window}]. Adds "group" and returns them in queue order."""
+    for r in rows:
+        r["group"] = queue_group(r["action"], r.get("in_window", False), today)
+    return sorted(rows, key=lambda r: (r["group"], r["action"].get("due") or date.max, PRIORITY_RANK.get(r.get("priority"), 4), r.get("name") or ""))
+
+
+def default_selection(rows: list[dict]):
+    """The prospect to open first: the first actionable one that isn't Low priority, else the first actionable one.
+    None if nothing needs action (a replied or stopped record is never opened automatically)."""
+    actionable = [r for r in rows if r["group"] != NO_ACTION]
+    pick = next((r for r in actionable if r.get("priority") not in (A.LOW, A.CHECK_FIRST)), actionable[0] if actionable else None)
+    return pick["reg"] if pick else None
+
+
+# ---------- the GTM brief ----------
+def account_reasons(plan: dict) -> list[str]:
+    """One or two plain reasons this charity is (or isn't) a good account, strongest first."""
+    pr = plan["priority"]
+    if pr["level"] == A.CHECK_FIRST or plan["primary"]["key"] == "fallback":
+        first = pr["reasons"][0]
+    else:
+        first = plan["primary"]["fact"]
+    second = next((r for r in pr["reasons"] if r.startswith(("High percentage growth", "Small charity"))), None) or next(
+        (r for r in pr["reasons"] if r.startswith("Latest income")), None
+    )
+    return [first] + ([second] if second and second != first else [])
+
+
+def why_now(plan: dict) -> tuple[str, str]:
+    """(headline, caveat). Timing is an estimate from the financial year end, never confirmed intent."""
+    t, sched = plan["timing"], plan["schedule"]
+    if not t.get("window"):
+        return "No timing estimate: the financial year end isn't known.", "Contact when it suits you."
+    start, end = t["window"]
+    caveat = f"Estimated from their financial year end ({t['fy_end']:%d %B}). A hypothesis, not confirmed buying intent."
+    if t["now"]:
+        return f"Possible budget-planning window is open now, until {end:%B %Y}.", caveat
+    head = f"Possible budget-planning window opens {start:%B %Y} (to {end:%B %Y})."
+    if sched["early"]:
+        head += " You chose early relationship-building, so contact starts before it."
+    return head, caveat
+
+
+def provenance(s: dict) -> tuple[str, str]:
+    """(facts line, estimates line) shown under the brief."""
+    end = s.get("latest_period_end")
+    facts = "Charity Commission · " + (f"accounts to {date.fromisoformat(str(end)[:10]):%d %B %Y}" if end else "no accounts on record")
+    facts += " · income and expenditure reported; changes and priority calculated"
+    return facts, "Planning window and contact timing · estimated from the financial year end · drafts are for you to edit"
 
 
 def plan_markdown(rec: dict, s: dict, plan: dict, item: dict | None = None) -> str:
@@ -563,8 +697,10 @@ def plan_markdown(rec: dict, s: dict, plan: dict, item: dict | None = None) -> s
     c, pr, t = plan["contact"], plan["priority"], plan["timing"]
     lines = [f"# Outreach plan: {c['charity']} (#{rec['reg_number']})", ""]
     if item:
-        act, due = next_action(item, plan)
-        lines += [f"Status: {item.get('outcome', 'Active')}  ·  Next action: {act}" + (f" on {due:%a %d %b %Y}" if due else ""), ""]
+        act = next_action(item, plan)
+        lines += [f"Status: {item.get('outcome', 'Active')}  ·  Next action: {act['label']}" + (f" on {act['due']:%a %d %b %Y}" if act["due"] else ""), ""]
+        if act["note"]:
+            lines += [act["note"], ""]
     lines += [
         "## Financial direction",
         plan["summary"],

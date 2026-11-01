@@ -14,7 +14,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-OUTCOMES = ["Active", "Replied", "Meeting booked", "Not interested", "Paused"]
+OUTCOMES = ["Active", "Replied", "Meeting booked", "Not interested", "Not relevant", "Paused"]
 DEFAULT_SETTINGS = {
     "name": "",
     "role": "",
@@ -50,6 +50,8 @@ class ProspectStore:
         item.setdefault("start", date.today().isoformat())
         item.setdefault("done", {})
         item.setdefault("notes", "")
+        item.setdefault("snooze_until", None)  # current action pushed back to this date
+        item.setdefault("early", False)  # contact before the estimated planning window, on purpose
         if item.get("outcome") not in OUTCOMES:
             item["outcome"] = "Active"
         return item
